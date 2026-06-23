@@ -1,0 +1,135 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;655;700;900&family=Playfair+Display:ital,wght@0,450;0,700;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Playfair Display", Georgia, Cambria, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-gold: #C5A267;
+  --color-gold-light: rgba(197, 162, 103, 0.1);
+  --color-gold-border: rgba(197, 162, 103, 0.25);
+  --color-dark-bg: #0A0A0B;
+  --color-dark-panel: #111113;
+  --color-dark-card: #131315;
+  --color-dark-item: #1A1A1D;
+}
+
+/* Custom transitions and scrollbar behavior */
+@layer base {
+  html, body {
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+    scroll-behavior: smooth;
+    font-family: var(--font-sans);
+    background-color: #0A0A0B;
+  }
+}
+
+/* Custom dark mode utility values */
+.dark {
+  color-scheme: dark;
+  --background: #0A0A0B;
+  --foreground: #E5E7EB;
+}
+
+.dark body {
+  background-color: #0A0A0B;
+  color: #E5E7EB;
+}
+
+/* Custom bounce / rotate animations */
+.animate-spin-slow {
+  animation: spin 8s linear infinite;
+}
+
+.animate-pulse-slow {
+  animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-bounce-slow {
+  animation: bounce 2.5s infinite;
+}
+
+/* Pulser for elements */
+.pulse-border {
+  animation: border-glow 2s infinite ease-in-out;
+}
+
+@keyframes border-glow {
+  0%, 100% {
+    border-color: rgba(99, 102, 241, 0.4);
+    box-shadow: 0 0 0 rgba(99, 102, 241, 0);
+  }
+  50% {
+    border-color: rgba(99, 102, 241, 0.95);
+    box-shadow: 0 0 8px rgba(99, 102, 241, 0.15);
+  }
+}
+
+/* Scrollbar styling */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 9px;
+}
+
+.dark .scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #334155;
+}
+
+/* Specialized print rules for PDF compiling */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 12pt;
+    line-height: 1.5;
+  }
+  
+  /* Hide interactive margins of shell */
+  .print\:hidden {
+    display: none !important;
+  }
+  
+  .print\:p-0 {
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+  }
+  
+  .print\:text-black {
+    color: black !important;
+  }
+
+  .print\:border-none {
+    border: none !important;
+  }
+
+  .print\:shadow-none {
+    box-shadow: none !important;
+  }
+  
+  pre, code {
+    white-space: pre-wrap !important;
+    word-break: break-all !important;
+  }
+  
+  /* Prevent cutting off steps on page breaks */
+  h1, h2, h3, h4 {
+    page-break-after: avoid;
+  }
+  
+  tr, li, .pb-10 {
+    page-break-inside: avoid;
+  }
+}
