@@ -1,0 +1,42 @@
+# Dependency directories
+node_modules/
+frontend/node_modules/
+
+# Build outputs
+dist/
+build/
+frontend/dist/
+frontend/build/
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.production
+.env.staging
+frontend/.env
+frontend/.env.local
+frontend/.env.development
+frontend/.env.production
+frontend/.env.staging
+
+# IDEs and editors
+.idea/
+.vscode/
+frontend/.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Antigravity system files
+.antigravity/
+frontend/.antigravity/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
