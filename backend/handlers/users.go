@@ -21,7 +21,7 @@ func GetUsersHandler(c *gin.Context) {
 	}
 
 	// Fetch all users in the system to list as team contributors
-	rows, err := db.DB.Query("SELECT id, name, email, role FROM users ORDER BY name ASC")
+	rows, err := db.DB.Query("SELECT id, name, email, role FROM users WHERE status = 'active' ORDER BY name ASC")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database query error"})
 		return
@@ -90,8 +90,8 @@ func PostUsersHandler(c *gin.Context) {
 		return
 	}
 
-	// Create a random password since this is added by team, default password is 'password123'
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+	tempPassword := GenerateTempPassword()
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(tempPassword), bcrypt.DefaultCost)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Encryption error"})
 		return
@@ -105,7 +105,13 @@ func PostUsersHandler(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"success": true, "user_id": newUserID})
+	_, _ = db.DB.Exec(`
+		INSERT INTO organization_members (organization_id, user_id, role)
+		VALUES ('org_default', $1, $2)
+		ON CONFLICT (organization_id, user_id) DO UPDATE SET role = EXCLUDED.role, status = 'active'
+	`, newUserID, role)
+
+	c.JSON(http.StatusCreated, gin.H{"success": true, "user_id": newUserID, "temporary_password": tempPassword})
 }
 
 // DeleteUserHandler handles DELETE /api/users/:id
@@ -128,7 +134,7 @@ func DeleteUserHandler(c *gin.Context) {
 		return
 	}
 
-	_, err = db.DB.Exec("DELETE FROM users WHERE id = $1", targetUserID)
+	_, err = db.DB.Exec("UPDATE users SET status = 'inactive', updated_at = CURRENT_TIMESTAMP WHERE id = $1", targetUserID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete user"})
 		return
@@ -152,13 +158,41 @@ func UserDashboardStatsHandler(c *gin.Context) {
 		return
 	}
 
+	var normalizedMyTasks int
+	var normalizedCompletedTasks int
+	var normalizedTotalTasks int
+	err = db.DB.QueryRow(`
+		SELECT
+			COUNT(*) FILTER (WHERE t.assignee_id = $1 AND t.status <> 'done') AS my_tasks,
+			COUNT(*) FILTER (WHERE t.status = 'done') AS completed_tasks,
+			COUNT(*) AS total_tasks
+		FROM node_role_tasks t
+		JOIN workflow_nodes n ON n.id = t.node_id
+		JOIN modules m ON m.id = n.module_id
+		JOIN projects p ON p.id = m.project_id
+		LEFT JOIN project_members pm ON pm.project_id = p.id
+		WHERE p.status = 'active'
+		  AND m.status = 'active'
+		  AND (p.owner_id = $1 OR pm.user_id = $1)
+	`, userID).Scan(&normalizedMyTasks, &normalizedCompletedTasks, &normalizedTotalTasks)
+	if err == nil && normalizedTotalTasks > 0 {
+		completionRate := (normalizedCompletedTasks * 100) / normalizedTotalTasks
+		c.JSON(http.StatusOK, gin.H{
+			"my_tasks_count":  normalizedMyTasks,
+			"completion_rate": completionRate,
+		})
+		return
+	}
+
 	// 2. Query all modules of projects user has access to
 	rows, err := db.DB.Query(`
 		SELECT m.nodes 
 		FROM modules m
 		JOIN projects p ON m.project_id = p.id
 		LEFT JOIN project_members pm ON p.id = pm.project_id
-		WHERE p.owner_id = $1 OR pm.user_id = $1
+		WHERE p.status = 'active'
+		  AND m.status = 'active'
+		  AND (p.owner_id = $1 OR pm.user_id = $1)
 	`, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query workflow tasks"})

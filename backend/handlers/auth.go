@@ -3,6 +3,7 @@ package handlers
 import (
 	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -20,7 +21,7 @@ import (
 )
 
 // Email regex validation
-var emailRegex = regexp.MustCompile(`^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,4}$`)
+var emailRegex = regexp.MustCompile(`^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$`)
 
 // GenerateUUID formats a secure UUIDv4 string
 func GenerateUUID() string {
@@ -33,6 +34,15 @@ func GenerateUUID() string {
 	bytes[6] = (bytes[6] & 0x0f) | 0x40 // Version 4
 	bytes[8] = (bytes[8] & 0x3f) | 0x80 // Variant is 10
 	return fmt.Sprintf("%x-%x-%x-%x-%x", bytes[0:4], bytes[4:6], bytes[6:8], bytes[8:10], bytes[10:])
+}
+
+// GenerateTempPassword creates a one-time password for PM-created users.
+func GenerateTempPassword() string {
+	bytes := make([]byte, 12)
+	if _, err := rand.Read(bytes); err != nil {
+		return fmt.Sprintf("Flowak-%d", time.Now().UnixNano())
+	}
+	return "Flowak-" + base64.RawURLEncoding.EncodeToString(bytes)
 }
 
 // RegisterHandler registers a new user
@@ -64,8 +74,8 @@ func RegisterHandler(c *gin.Context) {
 		return
 	}
 
-	if len(password) < 6 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Password must be at least 6 characters"})
+	if len(password) < 8 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Password must be at least 8 characters"})
 		return
 	}
 
@@ -103,6 +113,12 @@ func RegisterHandler(c *gin.Context) {
 		return
 	}
 
+	_, _ = db.DB.Exec(`
+		INSERT INTO organization_members (organization_id, user_id, role)
+		VALUES ('org_default', $1, $2)
+		ON CONFLICT (organization_id, user_id) DO UPDATE SET role = EXCLUDED.role
+	`, userID, role)
+
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
 		"message": "User registered successfully",
@@ -129,7 +145,7 @@ func LoginHandler(c *gin.Context) {
 	// 1. Find user in database
 	var user models.User
 	var passwordHash string
-	err := db.DB.QueryRow("SELECT id, name, email, password_hash, role, created_at FROM users WHERE email = $1", email).
+	err := db.DB.QueryRow("SELECT id, name, email, password_hash, role, created_at FROM users WHERE email = $1 AND status = 'active'", email).
 		Scan(&user.ID, &user.Name, &user.Email, &passwordHash, &user.Role, &user.CreatedAt)
 
 	if err != nil {
@@ -147,6 +163,8 @@ func LoginHandler(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
 		return
 	}
+
+	_, _ = db.DB.Exec("UPDATE users SET last_login_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1", user.ID)
 
 	// 3. Generate JWT Token (Expired in 24 hours)
 	expirationTime := time.Now().Add(24 * time.Hour)

@@ -17,12 +17,26 @@ import (
 
 // CorsMiddleware sets up simple CORS headers for Gin context
 func CorsMiddleware() gin.HandlerFunc {
+	allowedOrigins := make(map[string]bool)
+	for _, origin := range config.ActiveConfig.AllowedOrigins {
+		allowedOrigins[origin] = true
+	}
+
 	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := c.GetHeader("Origin")
+		if origin != "" && allowedOrigins[origin] {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+			c.Writer.Header().Set("Vary", "Origin")
+		}
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 
 		if c.Request.Method == "OPTIONS" {
+			if origin != "" && !allowedOrigins[origin] {
+				c.AbortWithStatus(http.StatusForbidden)
+				return
+			}
 			c.AbortWithStatus(http.StatusOK)
 			return
 		}
@@ -75,12 +89,11 @@ func main() {
 		api.POST("/ai/generate-flow", handlers.AiGenerateFlowHandler)
 		api.POST("/ai/mock-payload", handlers.AiMockPayloadHandler)
 		api.POST("/ai/audit-flow", handlers.AiAuditFlowHandler)
-		api.POST("/ai/generate-code", handlers.AiGenerateCodeHandler)
 
 		// User / Contributor CRUD
 		api.GET("/users", handlers.GetUsersHandler)
-		api.POST("/users", handlers.PostUsersHandler)
-		api.DELETE("/users/:id", handlers.DeleteUserHandler)
+		api.POST("/users", middleware.RequireRole("pm"), handlers.PostUsersHandler)
+		api.DELETE("/users/:id", middleware.RequireRole("pm"), handlers.DeleteUserHandler)
 		api.GET("/users/dashboard-stats", handlers.UserDashboardStatsHandler)
 	}
 
