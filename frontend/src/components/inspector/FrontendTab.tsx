@@ -13,7 +13,7 @@ interface FrontendTabProps {
 }
 
 export default function FrontendTab({ node }: FrontendTabProps) {
-  const { updateRole, teamMembers, addNotification } = useStore();
+  const { updateRole, teamMembers, addNotification, token } = useStore();
   const fe = node.roles?.frontend || { assignee: '', status: 'planned', component: '', route: '', framework: 'React', link: '' };
 
   // AI Boilerplate generation states
@@ -32,7 +32,10 @@ export default function FrontendTab({ node }: FrontendTabProps) {
     try {
       const res = await fetch('/api/ai/generate-code', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
           type: 'frontend',
           nodeLabel: node.label,

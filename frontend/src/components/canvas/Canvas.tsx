@@ -22,6 +22,7 @@ export default function Canvas() {
     setConnectFrom,
     loadAiGeneratedFlow,
     addNotification,
+    token,
   } = useStore();
 
   const activeModule = modules.find((m) => m.id === activeId);
@@ -75,7 +76,10 @@ export default function Canvas() {
 
       const res = await fetch('/api/ai/generate-flow', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({ prompt: aiPrompt }),
       });
 

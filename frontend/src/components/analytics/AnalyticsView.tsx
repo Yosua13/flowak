@@ -9,7 +9,7 @@ import { TrendingUp, Award, Star, CheckCircle, BarChart2, ShieldCheck, Clock, Us
 import { STATUS_CONFIG } from '../../config/status';
 
 export default function AnalyticsView() {
-  const { modules, activeId, teamMembers, addNotification } = useStore();
+  const { modules, activeId, teamMembers, addNotification, token } = useStore();
   const activeModule = modules.find((m) => m.id === activeId);
 
   // AI Auditor states
@@ -92,7 +92,10 @@ export default function AnalyticsView() {
     try {
       const res = await fetch('/api/ai/audit-flow', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({ module: activeModule }),
       });
 

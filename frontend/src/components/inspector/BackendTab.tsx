@@ -14,7 +14,7 @@ interface BackendTabProps {
 }
 
 export default function BackendTab({ node }: BackendTabProps) {
-  const { updateRole, teamMembers, addNotification } = useStore();
+  const { updateRole, teamMembers, addNotification, token } = useStore();
   const be = node.roles?.backend || {
     assignee: '',
     status: 'planned',
@@ -67,7 +67,10 @@ export default function BackendTab({ node }: BackendTabProps) {
     try {
       const res = await fetch('/api/ai/mock-payload', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
           actor: node.doc?.actor || 'Sistem',
           label: node.label,
@@ -102,7 +105,10 @@ export default function BackendTab({ node }: BackendTabProps) {
     try {
       const res = await fetch('/api/ai/generate-code', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
           type: 'backend',
           nodeLabel: node.label,
