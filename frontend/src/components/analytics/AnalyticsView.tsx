@@ -327,7 +327,8 @@ export default function AnalyticsView() {
                 roles.forEach((r) => {
                   const facet = n.roles[r];
                   if (facet && facet.assignee) {
-                    const name = facet.assignee;
+                    const isRegistered = teamMembers.some((m) => m.name === facet.assignee);
+                    const name = isRegistered ? facet.assignee : 'Belum ditunjuk';
                     if (!acc[name]) acc[name] = { done: 0, total: 0 };
                     acc[name].total++;
                     if (facet.status === 'done') acc[name].done++;
@@ -359,7 +360,11 @@ export default function AnalyticsView() {
               m.nodes.forEach((n) => {
                 ['uiux', 'frontend', 'backend'].forEach((r) => {
                   const facet = n.roles[r as 'uiux' | 'frontend' | 'backend'];
-                  if (facet && facet.assignee) acc[facet.assignee] = { done: 0, total: 0 };
+                  if (facet && facet.assignee) {
+                    const isRegistered = teamMembers.some((m) => m.name === facet.assignee);
+                    const name = isRegistered ? facet.assignee : 'Belum ditunjuk';
+                    acc[name] = { done: 0, total: 0 };
+                  }
                 });
               });
               return acc;

@@ -1,9 +1,17 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import { Module } from '../domain/types';
+import { useStore } from '../store/useStore';
+
+const getDisplayAssignee = (name?: string): string => {
+  if (!name) return 'Belum ditunjuk';
+  const { teamMembers } = useStore.getState();
+  return teamMembers.some((m) => m.name === name) ? name : 'Belum ditunjuk';
+};
+
+const isRegistered = (name?: string): boolean => {
+  if (!name) return false;
+  const { teamMembers } = useStore.getState();
+  return teamMembers.some((m) => m.name === name);
+};
 
 /**
  * Utility to download files in the browser
@@ -52,13 +60,13 @@ export function generateMarkdown(module: Module): string {
     // Facets Kesiapan
     md += `#### Peran & Kesiapan Implementasi\n\n`;
     if (node.roles.uiux) {
-      md += `- **UI/UX**: Assigned to **${node.roles.uiux.assignee || 'Unassigned'}** | Status: \`${node.roles.uiux.status?.toUpperCase() || 'PLANNED'}\` | Screen: *${node.roles.uiux.screen || 'N/A'}*\n`;
+      md += `- **UI/UX**: Assigned to **${getDisplayAssignee(node.roles.uiux.assignee)}** | Status: \`${node.roles.uiux.status?.toUpperCase() || 'PLANNED'}\` | Screen: *${node.roles.uiux.screen || 'N/A'}*\n`;
     }
     if (node.roles.frontend) {
-      md += `- **Frontend**: Assigned to **${node.roles.frontend.assignee || 'Unassigned'}** | Status: \`${node.roles.frontend.status?.toUpperCase() || 'PLANNED'}\` | Component: \`${node.roles.frontend.component || 'N/A'}\` | Route: \`${node.roles.frontend.route || 'N/A'}\`\n`;
+      md += `- **Frontend**: Assigned to **${getDisplayAssignee(node.roles.frontend.assignee)}** | Status: \`${node.roles.frontend.status?.toUpperCase() || 'PLANNED'}\` | Component: \`${node.roles.frontend.component || 'N/A'}\` | Route: \`${node.roles.frontend.route || 'N/A'}\`\n`;
     }
     if (node.roles.backend) {
-      md += `- **Backend**: Assigned to **${node.roles.backend.assignee || 'Unassigned'}** | Status: \`${node.roles.backend.status?.toUpperCase() || 'PLANNED'}\` | API Contract: \`${node.roles.backend.method || 'GET'} ${node.roles.backend.endpoint || 'N/A'}\` | Status code: \`${node.roles.backend.statusCode || 'N/A'}\`\n`;
+      md += `- **Backend**: Assigned to **${getDisplayAssignee(node.roles.backend.assignee)}** | Status: \`${node.roles.backend.status?.toUpperCase() || 'PLANNED'}\` | API Contract: \`${node.roles.backend.method || 'GET'} ${node.roles.backend.endpoint || 'N/A'}\` | Status code: \`${node.roles.backend.statusCode || 'N/A'}\`\n`;
     }
     md += `\n---\n\n`;
   });
@@ -224,15 +232,15 @@ export function exportToCsv(module: Module) {
       node.doc.sla || '',
       (node.doc.process || '').replace(/"/g, '""'), // escape quotes in CSV
       (node.doc.rules || '').replace(/"/g, '""'),
-      node.roles.uiux?.assignee || '',
+      node.roles.uiux?.assignee && isRegistered(node.roles.uiux.assignee) ? node.roles.uiux.assignee : '',
       node.roles.uiux?.status || '',
       node.roles.uiux?.screen || '',
       node.roles.uiux?.link || '',
-      node.roles.frontend?.assignee || '',
+      node.roles.frontend?.assignee && isRegistered(node.roles.frontend.assignee) ? node.roles.frontend.assignee : '',
       node.roles.frontend?.status || '',
       node.roles.frontend?.component || '',
       node.roles.frontend?.route || '',
-      node.roles.backend?.assignee || '',
+      node.roles.backend?.assignee && isRegistered(node.roles.backend.assignee) ? node.roles.backend.assignee : '',
       node.roles.backend?.status || '',
       node.roles.backend?.method || '',
       node.roles.backend?.endpoint || '',

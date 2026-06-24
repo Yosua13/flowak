@@ -18,7 +18,7 @@ interface KanbanTask {
 }
 
 export default function KanbanView() {
-  const { modules, activeId, updateRole } = useStore();
+  const { modules, activeId, updateRole, teamMembers } = useStore();
   const activeModule = modules.find((m) => m.id === activeId);
 
   const [roleFilter, setRoleFilter] = useState<string>('all');
@@ -38,11 +38,12 @@ export default function KanbanView() {
     ['uiux', 'frontend', 'backend'].forEach((role) => {
       const facet = node.roles[role as RoleKey];
       if (facet) {
+        const isRegistered = facet.assignee && teamMembers.some((m) => m.name === facet.assignee);
         tasks.push({
           nodeId: node.id,
           nodeLabel: node.label,
           roleKey: role as RoleKey,
-          assignee: facet.assignee || 'Unassigned',
+          assignee: isRegistered ? facet.assignee : 'Belum ditunjuk',
           status: facet.status || 'planned',
           detail: facet,
         });

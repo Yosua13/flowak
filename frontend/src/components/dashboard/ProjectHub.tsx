@@ -58,11 +58,9 @@ export default function ProjectHub() {
         {/* Header Zone */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-6 border-b border-white/5">
           <div className="text-left">
-            <div className="flex items-center space-x-2.5 mb-1.5">
+            <div className="flex items-center space-x-2 mb-1.5">
               <div className="w-2.5 h-2.5 rounded-full bg-[#C5A267] shadow-[0_0_8px_#C5A267] animate-pulse"></div>
-              <span className="text-[10px] text-[#C5A267] font-mono tracking-widest uppercase font-bold select-all hover:underline" title="Salin URL halaman">
-                {window.location.origin}/dashboard/
-              </span>
+              <span className="text-[10px] text-gray-500 font-mono tracking-wider uppercase font-bold">Workspace Hub</span>
             </div>
             <h1 className="text-3xl font-light text-white tracking-tight" style={{ fontFamily: 'Georgia, serif' }}>
               Selamat datang kembali, <span className="italic">{currentUser?.name || 'Kontributor'}</span>

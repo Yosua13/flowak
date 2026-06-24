@@ -9,8 +9,13 @@ import { generateMarkdown } from '../../services/exportService';
 import { Printer, Copy, Check, FileText } from 'lucide-react';
 
 export default function DocView() {
-  const { modules, activeId } = useStore();
+  const { modules, activeId, teamMembers } = useStore();
   const activeModule = modules.find((m) => m.id === activeId);
+
+  const getDisplayAssignee = (name?: string) => {
+    if (!name) return 'Belum ditunjuk';
+    return teamMembers.some((m) => m.name === name) ? name : 'Belum ditunjuk';
+  };
 
   const [copied, setCopied] = useState(false);
 
@@ -133,7 +138,7 @@ export default function DocView() {
                     {node.roles.uiux && (
                       <div className="space-y-1 text-xs">
                         <p className="border-b border-white/5 text-[9px] font-bold tracking-wider text-[#E07A5F] uppercase font-mono pb-0.5">Artefak Desain UI/UX</p>
-                        <p><strong className="text-gray-400">Penanggung Jawab:</strong> <span className="text-white print:text-black">{node.roles.uiux.assignee || 'Planned'}</span></p>
+                        <p><strong className="text-gray-400">Penanggung Jawab:</strong> <span className="text-white print:text-black">{getDisplayAssignee(node.roles.uiux.assignee)}</span></p>
                         <p><strong className="text-gray-400">Nama Layar:</strong> <span className="text-white print:text-black">{node.roles.uiux.screen || 'N/A'}</span></p>
                         <p><strong className="text-gray-400">Status Kesiapan:</strong> <span className="font-mono text-[9px] uppercase font-bold text-[#E07A5F] bg-[#E07A5F]/5 px-1.5 py-0.5 rounded border border-[#E07A5F]/20">{node.roles.uiux.status}</span></p>
                       </div>
@@ -143,7 +148,7 @@ export default function DocView() {
                     {node.roles.frontend && (
                       <div className="space-y-1 text-xs">
                         <p className="border-b border-white/5 text-[9px] font-bold tracking-wider text-[#4F9D9F] uppercase font-mono pb-0.5">Implementasi Frontend (Klien)</p>
-                        <p><strong className="text-gray-400">Penanggung Jawab:</strong> <span className="text-white print:text-black">{node.roles.frontend.assignee || 'Planned'}</span></p>
+                        <p><strong className="text-gray-400">Penanggung Jawab:</strong> <span className="text-white print:text-black">{getDisplayAssignee(node.roles.frontend.assignee)}</span></p>
                         <p><strong className="text-gray-400">Komponen File:</strong> <code className="text-[10px] bg-white/5 px-1 rounded font-mono text-gray-300 print:bg-slate-100">{node.roles.frontend.component || 'N/A'}</code></p>
                         <p><strong className="text-gray-400">Jalur Rute:</strong> <code className="text-[10px] bg-white/5 px-1 rounded font-mono text-gray-300 print:bg-slate-100">{node.roles.frontend.route || 'N/A'}</code></p>
                         <p><strong className="text-gray-400">Status Kesiapan:</strong> <span className="font-mono text-[9px] uppercase font-bold text-[#4F9D9F] bg-[#4F9D9F]/5 px-1.5 py-0.5 rounded border border-[#4F9D9F]/20">{node.roles.frontend.status || 'Planned'}</span></p>
@@ -154,7 +159,7 @@ export default function DocView() {
                     {node.roles.backend && (
                       <div className="space-y-1 text-xs">
                         <p className="border-b border-white/5 text-[9px] font-bold tracking-wider text-amber-500 uppercase font-mono pb-0.5">Implementasi Backend API</p>
-                        <p><strong className="text-gray-400">Penanggung Jawab:</strong> <span className="text-white print:text-black">{node.roles.backend.assignee || 'Planned'}</span></p>
+                        <p><strong className="text-gray-400">Penanggung Jawab:</strong> <span className="text-white print:text-black">{getDisplayAssignee(node.roles.backend.assignee)}</span></p>
                         <p><strong className="text-gray-400">Endpoint Kontrak:</strong> <code className="text-[10px] bg-[#1A1A1D] border border-white/5 text-[#C5A267] px-1 rounded font-mono font-bold">{node.roles.backend.method || 'GET'} {node.roles.backend.endpoint || 'N/A'}</code></p>
                         <p><strong className="text-gray-400">Status Kesiapan:</strong> <span className="font-mono text-[9px] uppercase font-bold text-amber-500 bg-amber-500/5 px-1.5 py-0.5 rounded border border-amber-500/20">{node.roles.backend.status || 'Planned'}</span></p>
                       </div>

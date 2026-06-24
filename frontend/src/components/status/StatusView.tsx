@@ -11,8 +11,13 @@ import { NODE_TYPES } from '../../config/nodeTypes';
 import { PanelLeftClose, AlertCircle, LayoutGrid, CheckCircle } from 'lucide-react';
 
 export default function StatusView() {
-  const { modules, activeId, selectNode, setView } = useStore();
+  const { modules, activeId, selectNode, setView, teamMembers } = useStore();
   const activeModule = modules.find((m) => m.id === activeId);
+
+  const getDisplayAssignee = (name?: string) => {
+    if (!name) return 'Belum ditunjuk';
+    return teamMembers.some((m) => m.name === name) ? name : 'Belum ditunjuk';
+  };
 
   if (!activeModule) {
     return (
@@ -184,7 +189,7 @@ export default function StatusView() {
                             {(node.roles.uiux.status || 'planned').toUpperCase()}
                           </span>
                           <span className="text-[10px] text-gray-400">
-                            {node.roles.uiux.assignee || 'Belum ditunjuk'}
+                            {getDisplayAssignee(node.roles.uiux.assignee)}
                           </span>
                         </div>
                       ) : (
@@ -203,7 +208,7 @@ export default function StatusView() {
                             {(node.roles.frontend.status || 'planned').toUpperCase()}
                           </span>
                           <span className="text-[10px] text-gray-400">
-                            {node.roles.frontend.assignee || 'Belum ditunjuk'}
+                            {getDisplayAssignee(node.roles.frontend.assignee)}
                           </span>
                         </div>
                       ) : (
@@ -222,7 +227,7 @@ export default function StatusView() {
                             {(node.roles.backend.status || 'planned').toUpperCase()}
                           </span>
                           <span className="text-[10px] text-gray-400">
-                            {node.roles.backend.assignee || 'Belum ditunjuk'}
+                            {getDisplayAssignee(node.roles.backend.assignee)}
                           </span>
                         </div>
                       ) : (
