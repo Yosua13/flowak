@@ -49,10 +49,14 @@ export function generateMarkdown(module: Module): string {
   module.nodes.forEach((node, index) => {
     md += `### ${index + 1}. [${node.type.toUpperCase()}] ${node.label}\n\n`;
     if (node.doc.actor) md += `- **Aktor Utama**: ${node.doc.actor}\n`;
+    if (node.doc.trigger) md += `- **Pemicu**: ${node.doc.trigger}\n`;
     if (node.doc.system) md += `- **Sistem Utama**: ${node.doc.system}\n`;
     if (node.doc.sla) md += `- **SLA Estimasi**: ${node.doc.sla}\n`;
+    if (node.doc.priority || node.doc.riskLevel) md += `- **Prioritas/Risiko**: ${node.doc.priority || 'medium'} / ${node.doc.riskLevel || 'medium'}\n`;
     if (node.doc.process) md += `- **Deskripsi Proses**: ${node.doc.process}\n`;
     if (node.doc.rules) md += `- **Aturan Bisnis**: ${node.doc.rules}\n`;
+    if (node.doc.exceptionPath) md += `- **Alur Pengecualian**: ${node.doc.exceptionPath}\n`;
+    if (node.doc.acceptanceCriteria) md += `- **Kriteria Selesai**: ${node.doc.acceptanceCriteria}\n`;
     if (node.doc.input) md += `- **Input**: ${node.doc.input}\n`;
     if (node.doc.output) md += `- **Output**: ${node.doc.output}\n`;
     md += `\n`;
@@ -63,7 +67,9 @@ export function generateMarkdown(module: Module): string {
       md += `- **UI/UX**: Assigned to **${getDisplayAssignee(node.roles.uiux.assignee)}** | Status: \`${node.roles.uiux.status?.toUpperCase() || 'PLANNED'}\` | Screen: *${node.roles.uiux.screen || 'N/A'}*\n`;
     }
     if (node.roles.frontend) {
-      md += `- **Frontend**: Assigned to **${getDisplayAssignee(node.roles.frontend.assignee)}** | Status: \`${node.roles.frontend.status?.toUpperCase() || 'PLANNED'}\` | Component: \`${node.roles.frontend.component || 'N/A'}\` | Route: \`${node.roles.frontend.route || 'N/A'}\`\n`;
+      const legacyFrontend = node.roles.frontend as typeof node.roles.frontend & { component?: string };
+      const pageName = node.roles.frontend.page || legacyFrontend.component || 'N/A';
+      md += `- **Frontend Handoff**: Assigned to **${getDisplayAssignee(node.roles.frontend.assignee)}** | Status: \`${node.roles.frontend.status?.toUpperCase() || 'PLANNED'}\` | Page: \`${pageName}\` | Route: \`${node.roles.frontend.route || 'N/A'}\`\n`;
     }
     if (node.roles.backend) {
       md += `- **Backend**: Assigned to **${getDisplayAssignee(node.roles.backend.assignee)}** | Status: \`${node.roles.backend.status?.toUpperCase() || 'PLANNED'}\` | API Contract: \`${node.roles.backend.method || 'GET'} ${node.roles.backend.endpoint || 'N/A'}\` | Status code: \`${node.roles.backend.statusCode || 'N/A'}\`\n`;
@@ -203,18 +209,27 @@ export function exportToCsv(module: Module) {
     'Label Langkah',
     'Tipe Langkah',
     'Aktor',
+    'Pemicu',
     'Sistem',
     'Estimasi SLA',
+    'Prioritas',
+    'Risiko',
     'Deskripsi Proses Bisnis',
     'Aturan Bisnis',
+    'Alur Pengecualian',
+    'Kriteria Selesai',
     'UX Assignee',
     'UX Status',
     'UX Laman/Layar',
     'UX Figma Link',
     'FE Assignee',
     'FE Status',
-    'FE Komponen',
+    'FE Halaman',
     'FE Jalur Rute',
+    'FE Interaksi',
+    'FE Validasi',
+    'FE State Handling',
+    'FE Target Selesai',
     'BE Assignee',
     'BE Status',
     'BE HTTP Metode',
@@ -228,18 +243,27 @@ export function exportToCsv(module: Module) {
       node.label,
       node.type,
       node.doc.actor || '',
+      node.doc.trigger || '',
       node.doc.system || '',
       node.doc.sla || '',
+      node.doc.priority || '',
+      node.doc.riskLevel || '',
       (node.doc.process || '').replace(/"/g, '""'), // escape quotes in CSV
       (node.doc.rules || '').replace(/"/g, '""'),
+      (node.doc.exceptionPath || '').replace(/"/g, '""'),
+      (node.doc.acceptanceCriteria || '').replace(/"/g, '""'),
       node.roles.uiux?.assignee && isRegistered(node.roles.uiux.assignee) ? node.roles.uiux.assignee : '',
       node.roles.uiux?.status || '',
       node.roles.uiux?.screen || '',
       node.roles.uiux?.link || '',
       node.roles.frontend?.assignee && isRegistered(node.roles.frontend.assignee) ? node.roles.frontend.assignee : '',
       node.roles.frontend?.status || '',
-      node.roles.frontend?.component || '',
+      node.roles.frontend?.page || (node.roles.frontend as typeof node.roles.frontend & { component?: string } | undefined)?.component || '',
       node.roles.frontend?.route || '',
+      node.roles.frontend?.interaction || '',
+      node.roles.frontend?.validation || '',
+      node.roles.frontend?.state || '',
+      node.roles.frontend?.dueDate || '',
       node.roles.backend?.assignee && isRegistered(node.roles.backend.assignee) ? node.roles.backend.assignee : '',
       node.roles.backend?.status || '',
       node.roles.backend?.method || '',

@@ -18,7 +18,7 @@ function uid() {
 
 async function startServer() {
   const app = express();
-  const PORT = 3001;
+  const PORT = Number(process.env.FRONTEND_SERVER_PORT || 3002);
 
   // Use raw and JSON middleware
   app.use(express.json({ limit: "10mb" }));

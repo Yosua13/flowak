@@ -21,12 +21,17 @@ export default function BisnisTab({ node }: BisnisTabProps) {
 
   const fields: { id: keyof BusinessFacet; label: string; placeholder: string; type: 'text' | 'textarea' }[] = [
     { id: 'actor', label: 'Aktor Pelaku', placeholder: 'Karyawan, HR, Admin...', type: 'text' },
+    { id: 'trigger', label: 'Pemicu Langkah', placeholder: 'Submit form, jadwal otomatis, approval diterima...', type: 'text' },
     { id: 'system', label: 'Sistem Terkait', placeholder: 'FlowakPortal, MySQL Server, Oracle...', type: 'text' },
     { id: 'sla', label: 'Resolusi SLA', placeholder: 'Instan, 2 jam, 1 hari...', type: 'text' },
+    { id: 'priority', label: 'Prioritas', placeholder: 'low, medium, high, critical...', type: 'text' },
+    { id: 'riskLevel', label: 'Level Risiko', placeholder: 'low, medium, high...', type: 'text' },
     { id: 'input', label: 'Kebutuhan Input Data', placeholder: 'Formulir data karyawan, id pengajuan...', type: 'textarea' },
     { id: 'process', label: 'Uraian Proses Bisnis', placeholder: 'Mengecek jatah saldo cuti...', type: 'textarea' },
     { id: 'output', label: 'Hasil Output Data', placeholder: 'Konfirmasi kelulusan, penolakan...', type: 'textarea' },
     { id: 'rules', label: 'Aturan Bisnis (Aturan Validasi/Konsistensi)', placeholder: 'Sisa cuti harus > 0...', type: 'textarea' },
+    { id: 'exceptionPath', label: 'Alur Pengecualian / Gagal', placeholder: 'Jika data tidak valid, arahkan ke revisi atau penolakan...', type: 'textarea' },
+    { id: 'acceptanceCriteria', label: 'Kriteria Selesai', placeholder: 'Kondisi yang harus terpenuhi agar langkah dianggap siap.', type: 'textarea' },
   ];
 
   return (

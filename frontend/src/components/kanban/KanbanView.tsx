@@ -14,6 +14,7 @@ interface KanbanTask {
   roleKey: RoleKey;
   assignee: string;
   status: Status;
+  dueDate?: string;
   detail: any;
 }
 
@@ -45,6 +46,7 @@ export default function KanbanView() {
           roleKey: role as RoleKey,
           assignee: isRegistered ? facet.assignee : 'Belum ditunjuk',
           status: facet.status || 'planned',
+          dueDate: facet.dueDate,
           detail: facet,
         });
       }
@@ -170,6 +172,12 @@ export default function KanbanView() {
                       <User className="w-3.5 h-3.5 text-gray-500" />
                       <span>{task.assignee}</span>
                     </div>
+
+                    {task.dueDate && (
+                      <div className="text-[10px] font-mono text-[#C5A267] pointer-events-none">
+                        Due {task.dueDate}
+                      </div>
+                    )}
 
                     {/* Status Mover Quick Switcher */}
                     <div className="pt-2 border-t border-white/3 flex items-center justify-between">

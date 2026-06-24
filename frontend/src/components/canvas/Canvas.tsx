@@ -89,7 +89,7 @@ export default function Canvas() {
       }
 
       // Success loading
-      loadAiGeneratedFlow(data.name, data.description, data.nodes, data.edges);
+      await loadAiGeneratedFlow(data.name, data.description, data.nodes, data.edges);
       
       // Cleanup
       setAiPrompt('');

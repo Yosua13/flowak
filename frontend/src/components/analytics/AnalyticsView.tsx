@@ -38,6 +38,8 @@ export default function AnalyticsView() {
   let inProgressTaskCount = 0;
   let reviewTaskCount = 0;
   let plannedTaskCount = 0;
+  let overdueTaskCount = 0;
+  const todayISO = new Date().toISOString().slice(0, 10);
 
   nodes.forEach((n) => {
     ['uiux', 'frontend', 'backend'].forEach((role) => {
@@ -48,6 +50,10 @@ export default function AnalyticsView() {
       else if (status === 'in_progress') inProgressTaskCount++;
       else if (status === 'review') reviewTaskCount++;
       else plannedTaskCount++;
+
+      if (facet?.dueDate && facet.dueDate < todayISO && status !== 'done') {
+        overdueTaskCount++;
+      }
     });
   });
 
@@ -306,6 +312,18 @@ export default function AnalyticsView() {
               </div>
               <span className="bg-[#C5A267]/10 border border-[#C5A267]/20 p-2 rounded-xl text-[#C5A267] font-mono text-[10px] font-bold uppercase tracking-wider">
                 API-Ready
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between border-t border-white/5 pt-3">
+              <div>
+                <p className="text-[10px] font-bold text-gray-500 font-mono uppercase tracking-wider">TASK OVERDUE</p>
+                <p className="text-white text-base font-black tracking-tight">{overdueTaskCount} Artefak</p>
+              </div>
+              <span className={`border p-2 rounded-xl font-mono text-[10px] font-bold uppercase tracking-wider ${
+                overdueTaskCount > 0 ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+              }`}>
+                {overdueTaskCount > 0 ? 'At Risk' : 'Clear'}
               </span>
             </div>
           </div>

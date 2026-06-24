@@ -74,7 +74,7 @@ interface AppStore {
   selectProject: (id: string | null) => Promise<void>;
 
   // Actions - Module management
-  addModule: (name: string, description?: string) => void;
+  addModule: (name: string, description?: string) => Promise<ID | null>;
   renameModule: (id: ID, name: string, description?: string) => void;
   deleteModule: (id: ID) => void;
   selectModule: (id: ID | null) => void;
@@ -104,7 +104,7 @@ interface AppStore {
   clearNotifications: () => void;
 
   // Actions - AI & Extra modularity actions
-  loadAiGeneratedFlow: (name: string, description: string, nodes: Node[], edges: Edge[]) => void;
+  loadAiGeneratedFlow: (name: string, description: string, nodes: Node[], edges: Edge[]) => Promise<void>;
   importModule: (mod: Module) => void;
   
   // Actions - Team Management API
@@ -416,7 +416,7 @@ export const useStore = create<AppStore>((set, get) => ({
   // Module Management Actions
   addModule: async (name, description) => {
     const { token, activeProjectId } = get();
-    if (!token || !activeProjectId) return;
+    if (!token || !activeProjectId) return null;
 
     try {
       const res = await fetch(`/api/projects/${activeProjectId}/modules`, {
@@ -449,9 +449,12 @@ export const useStore = create<AppStore>((set, get) => ({
             selectedNodeId: null
           });
         }
+        return data.module_id;
       }
+      return null;
     } catch (err) {
       console.error('Failed to add module:', err);
+      return null;
     }
   },
 
@@ -549,12 +552,17 @@ export const useStore = create<AppStore>((set, get) => ({
       y: 150 + Math.random() * 100,
       doc: {
         actor: type === 'actor' ? 'Petugas / User' : 'Sistem',
+        trigger: '',
         input: '',
         process: '',
         output: '',
         rules: '',
+        exceptionPath: '',
         system: type === 'system' ? 'Aplikasi Gateway' : 'FlowakPortal',
         sla: 'Instan',
+        priority: 'medium',
+        riskLevel: 'medium',
+        acceptanceCriteria: '',
       },
       roles: {
         uiux: {
@@ -566,10 +574,12 @@ export const useStore = create<AppStore>((set, get) => ({
         frontend: {
           assignee: findAssignee('frontend', 'Siti'),
           status: 'planned',
-          component: '',
+          page: '',
           route: '',
-          framework: 'React',
-          link: '',
+          interaction: '',
+          validation: '',
+          state: '',
+          handoffLink: '',
         },
         backend: {
           assignee: type === 'system'
@@ -582,6 +592,7 @@ export const useStore = create<AppStore>((set, get) => ({
           request: '',
           response: '',
           statusCode: '200',
+          errorCodes: '',
         },
       },
     };
@@ -883,39 +894,33 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   // AI & Extra modularity actions
-  loadAiGeneratedFlow: (name, description, nodes, edges) => {
+  loadAiGeneratedFlow: async (name, description, nodes, edges) => {
     const { activeProjectId, token } = get();
     if (!activeProjectId || !token) return;
 
-    // AI flows generated on canvas need to be saved to database
-    // We create a new module with the generated flow
-    get().addModule(name, description);
-    
-    // Once activeId is set to new module, we load it in state
-    setTimeout(() => {
-      const { activeId, modules } = get();
-      if (!activeId) return;
+    const moduleId = await get().addModule(name, description);
+    if (!moduleId) return;
 
-      const updated = modules.map((m) => {
-        if (m.id === activeId) {
-          return {
-            ...m,
-            nodes,
-            edges
-          };
-        }
-        return m;
-      });
+    const { modules } = get();
+    const updated = modules.map((m) => {
+      if (m.id === moduleId) {
+        return {
+          ...m,
+          nodes,
+          edges
+        };
+      }
+      return m;
+    });
 
-      set({ modules: updated });
-      debouncedSave(get);
+    set({ modules: updated, activeId: moduleId });
+    debouncedSave(get);
 
-      get().addNotification(
-        'Alur AI Dimuat',
-        `Alur kerja "${name}" dari asisten AI sukses dimuat.`,
-        'success'
-      );
-    }, 1000);
+    get().addNotification(
+      'Alur AI Dimuat',
+      `Alur kerja "${name}" dari asisten AI sukses dimuat.`,
+      'success'
+    );
   },
 
   importModule: async (mod) => {
@@ -1003,7 +1008,8 @@ export const useStore = create<AppStore>((set, get) => ({
 
       const data = await res.json();
       if (res.ok) {
-        get().addNotification('Anggota Tim Ditambahkan', `${name} dimasukkan ke daftar kontributor.`, 'success');
+        const tempPassword = data.temporary_password ? ` Password sementara: ${data.temporary_password}` : '';
+        get().addNotification('Anggota Tim Ditambahkan', `${name} dimasukkan ke daftar kontributor.${tempPassword}`, 'success');
         await get().loadTeamMembers();
       } else {
         get().addNotification('Gagal Menambahkan Anggota', data.error || 'Terjadi kesalahan', 'warning');

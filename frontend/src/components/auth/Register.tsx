@@ -95,7 +95,7 @@ export default function Register() {
               <input
                 type="password"
                 required
-                placeholder="Minimal 6 karakter"
+                placeholder="Minimal 8 karakter"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full text-sm pl-11 pr-4 py-3 bg-[#1A1A1D] border border-white/10 rounded-xl focus:border-[#C5A267]/60 focus:ring-1 focus:ring-[#C5A267]/60 focus:outline-none text-white transition-all placeholder-gray-600"

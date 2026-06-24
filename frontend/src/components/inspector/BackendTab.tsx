@@ -7,7 +7,7 @@ import React, { useState } from 'react';
 import { Node, Status, HttpMethod } from '../../domain/types';
 import { useStore } from '../../store/useStore';
 import { generateCurl } from '../../services/curl';
-import { Copy, Terminal, Play, Check, AlertCircle, RefreshCw, Sparkles, Code, Loader2 } from 'lucide-react';
+import { Copy, Play, Check, AlertCircle, RefreshCw, Sparkles, Loader2 } from 'lucide-react';
 
 interface BackendTabProps {
   node: Node;
@@ -23,19 +23,18 @@ export default function BackendTab({ node }: BackendTabProps) {
     auth: '',
     request: '',
     response: '',
-    statusCode: '200'
+    statusCode: '200',
+    errorCodes: '',
+    dueDate: '',
+    notes: '',
   };
 
   const [copied, setCopied] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ code: string; body: string } | null>(null);
 
-  // AI Mock & Boilerplate states
+  // AI mock contract state
   const [aiGeneratingMock, setAiGeneratingMock] = useState(false);
-  const [aiGeneratingCode, setAiGeneratingCode] = useState(false);
-  const [selectedLanguage, setSelectedLanguage] = useState('Express TS');
-  const [generatedCode, setGeneratedCode] = useState('');
-  const [copiedCode, setCopiedCode] = useState(false);
 
   const handleFieldChange = (key: string, val: string) => {
     updateRole(node.id, 'backend', { [key]: val });
@@ -98,39 +97,6 @@ export default function BackendTab({ node }: BackendTabProps) {
     }
   };
 
-  // AI Generates Backend Code files
-  const handleGenerateBoilerplate = async () => {
-    setAiGeneratingCode(true);
-    setGeneratedCode('');
-    try {
-      const res = await fetch('/api/ai/generate-code', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          type: 'backend',
-          nodeLabel: node.label,
-          nodeType: node.type,
-          detail: be,
-          framework: selectedLanguage,
-        }),
-      });
-
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-
-      setGeneratedCode(data.code);
-      addNotification('Kode Terbuat', `Boilerplate backend controller ${selectedLanguage} berhasil disusun.`, 'success');
-    } catch (err: any) {
-      console.error(err);
-      setGeneratedCode(`// Gagal menghasilkan kode:\n// ${err.message}\n\ntry {\n  // Mohon hubungkan GEMINI_API_KEY\n}`);
-    } finally {
-      setAiGeneratingCode(false);
-    }
-  };
-
   const beMembers = teamMembers.filter((m) => m.role === 'backend' || m.role === 'pm');
   const methods: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
@@ -142,12 +108,6 @@ export default function BackendTab({ node }: BackendTabProps) {
       case 'DELETE': return 'bg-red-500/15 text-red-400 border-red-400/40';
       default: return 'bg-slate-500/15 text-slate-400 border-slate-400/40';
     }
-  };
-
-  const handleCopyCode = () => {
-    navigator.clipboard.writeText(generatedCode);
-    setCopiedCode(true);
-    setTimeout(() => setCopiedCode(false), 2000);
   };
 
   return (
@@ -198,21 +158,34 @@ export default function BackendTab({ node }: BackendTabProps) {
           </select>
         </div>
 
-        {/* Status Selection */}
-        <div className="space-y-1">
-          <label className="block text-[9px] font-bold text-gray-400 font-mono uppercase tracking-wider">
-            Status Kesiapan Kontrak/API
-          </label>
-          <select
-            value={be.status || 'planned'}
-            onChange={(e) => handleFieldChange('status', e.target.value as Status)}
-            className="w-full text-xs border border-white/5 rounded-xl px-3 py-2 bg-[#1A1A1D] text-white outline-none focus:ring-1 focus:ring-[#C5A267] transition font-medium"
-          >
-            <option value="planned" className="bg-[#131315]">Planned (Terencana)</option>
-            <option value="in_progress" className="bg-[#131315]">In Progress (Pengerjaan)</option>
-            <option value="review" className="bg-[#131315]">In Review (Peninjauan)</option>
-            <option value="done" className="bg-[#131315]">Done (Selesai)</option>
-          </select>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1">
+            <label className="block text-[9px] font-bold text-gray-400 font-mono uppercase tracking-wider">
+              Status Kontrak/API
+            </label>
+            <select
+              value={be.status || 'planned'}
+              onChange={(e) => handleFieldChange('status', e.target.value as Status)}
+              className="w-full text-xs border border-white/5 rounded-xl px-3 py-2 bg-[#1A1A1D] text-white outline-none focus:ring-1 focus:ring-[#C5A267] transition font-medium"
+            >
+              <option value="planned" className="bg-[#131315]">Planned</option>
+              <option value="in_progress" className="bg-[#131315]">In Progress</option>
+              <option value="review" className="bg-[#131315]">In Review</option>
+              <option value="done" className="bg-[#131315]">Done</option>
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-[9px] font-bold text-gray-400 font-mono uppercase tracking-wider">
+              Target Selesai
+            </label>
+            <input
+              type="date"
+              value={be.dueDate || ''}
+              onChange={(e) => handleFieldChange('dueDate', e.target.value)}
+              className="w-full text-xs border border-white/5 rounded-xl px-3 py-2 bg-[#1A1A1D] text-white outline-none focus:ring-1 focus:ring-[#C5A267] transition"
+            />
+          </div>
         </div>
 
         {/* API Endpoint Input row with Method selector */}
@@ -298,6 +271,19 @@ export default function BackendTab({ node }: BackendTabProps) {
               className="w-full text-[10px] font-mono border border-[#C5A267]/10 bg-[#0A0A0B] text-gray-300 rounded-xl p-2.5 resize-y focus:outline-none focus:ring-1 focus:ring-[#C5A267] font-medium leading-normal h-20"
             />
           </div>
+
+          <div className="space-y-1">
+            <label className="block text-[9px] font-bold text-gray-400 font-mono uppercase tracking-wider">
+              Daftar Error / Kondisi Gagal (JSON)
+            </label>
+            <textarea
+              value={be.errorCodes || ''}
+              onChange={(e) => handleFieldChange('errorCodes', e.target.value)}
+              placeholder={'[\n  { "code": "INSUFFICIENT_QUOTA", "message": "Saldo cuti tidak cukup" }\n]'}
+              rows={3}
+              className="w-full text-[10px] font-mono border border-[#C5A267]/10 bg-[#0A0A0B] text-gray-300 rounded-xl p-2.5 resize-y focus:outline-none focus:ring-1 focus:ring-[#C5A267] font-medium leading-normal h-20"
+            />
+          </div>
         </div>
 
         {/* cURL Generation view */}
@@ -361,54 +347,6 @@ export default function BackendTab({ node }: BackendTabProps) {
               <div className="text-gray-300 max-h-36 overflow-y-auto leading-normal whitespace-pre-wrap font-mono">
                 {testResult.body}
               </div>
-            </div>
-          )}
-        </div>
-
-        {/* AI Boilerplate Code Generator Section C */}
-        <div className="pt-4 mt-2 border-t border-white/5">
-          <span className="text-[10px] font-bold font-mono tracking-widest text-[#C5A267] uppercase block mb-2">
-            AI Code Boilerplate Generator
-          </span>
-          <div className="flex space-x-2 mb-3">
-            <select
-              value={selectedLanguage}
-              onChange={(e) => setSelectedLanguage(e.target.value)}
-              className="flex-1 text-xs border border-white/5 rounded-xl px-3 py-2 bg-[#1A1A1D] text-white outline-none focus:ring-1 focus:ring-[#C5A267]"
-            >
-              <option value="Express TS">Node.js (Express TS)</option>
-              <option value="NestJS Controller">NestJS (TypeScript)</option>
-              <option value="Go Fiber">GoLang (Fiber Router)</option>
-              <option value="FastAPI Python">FastAPI (Python)</option>
-            </select>
-            <button
-              onClick={handleGenerateBoilerplate}
-              disabled={aiGeneratingCode || !be.endpoint}
-              className="flex items-center justify-center space-x-1.5 px-4 bg-white/5 border border-white/10 hover:bg-white/15 rounded-xl text-xs font-semibold text-white cursor-pointer transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {aiGeneratingCode ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin whitespace-nowrap" />
-              ) : (
-                <Code className="w-3.5 h-3.5" />
-              )}
-              <span className="whitespace-nowrap">BUAT KODE</span>
-            </button>
-          </div>
-
-          {generatedCode && (
-            <div className="mt-3 bg-[#0A0A0B] border border-[#C5A267]/20 rounded-xl p-3 text-[10px] font-mono leading-relaxed relative">
-              <div className="flex items-center justify-between border-b border-white/5 pb-2 mb-2">
-                <span className="text-white font-mono text-[9px] uppercase font-bold text-gray-400">{selectedLanguage} Controller</span>
-                <button
-                  onClick={handleCopyCode}
-                  className="text-[#C5A267] font-mono text-[9px] hover:underline"
-                >
-                  {copiedCode ? 'TERSALIN' : 'SALIN'}
-                </button>
-              </div>
-              <pre className="text-emerald-400 overflow-x-auto whitespace-pre leading-relaxed max-h-56 leading-normal p-1 scrollbar-thin">
-                {generatedCode}
-              </pre>
             </div>
           )}
         </div>

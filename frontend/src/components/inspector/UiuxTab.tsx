@@ -14,7 +14,16 @@ interface UiuxTabProps {
 
 export default function UiuxTab({ node }: UiuxTabProps) {
   const { updateRole, teamMembers } = useStore();
-  const uiux = node.roles?.uiux || { assignee: '', status: 'planned', screen: '', link: '' };
+  const uiux = node.roles?.uiux || {
+    assignee: '',
+    status: 'planned',
+    screen: '',
+    link: '',
+    wireframeUrl: '',
+    stateNotes: '',
+    accessibilityNotes: '',
+    dueDate: '',
+  };
 
   const handleFieldChange = (key: string, val: string) => {
     updateRole(node.id, 'uiux', { [key]: val });
@@ -53,21 +62,34 @@ export default function UiuxTab({ node }: UiuxTabProps) {
           </select>
         </div>
 
-        {/* Status selection */}
-        <div className="space-y-1">
-          <label className="block text-[9px] font-bold text-gray-400 font-mono uppercase tracking-wider">
-            Status Kesiapan Desain
-          </label>
-          <select
-            value={uiux.status || 'planned'}
-            onChange={(e) => handleFieldChange('status', e.target.value as Status)}
-            className="w-full text-xs border border-white/5 rounded-xl px-3 py-2 bg-[#1A1A1D] text-white outline-none focus:ring-1 focus:ring-[#C5A267] transition font-medium"
-          >
-            <option value="planned" className="bg-[#131315]">Planned (Terencana)</option>
-            <option value="in_progress" className="bg-[#131315]">In Progress (Pengerjaan)</option>
-            <option value="review" className="bg-[#131315]">In Review (Peninjauan)</option>
-            <option value="done" className="bg-[#131315]">Done (Selesai)</option>
-          </select>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1">
+            <label className="block text-[9px] font-bold text-gray-400 font-mono uppercase tracking-wider">
+              Status Desain
+            </label>
+            <select
+              value={uiux.status || 'planned'}
+              onChange={(e) => handleFieldChange('status', e.target.value as Status)}
+              className="w-full text-xs border border-white/5 rounded-xl px-3 py-2 bg-[#1A1A1D] text-white outline-none focus:ring-1 focus:ring-[#C5A267] transition font-medium"
+            >
+              <option value="planned" className="bg-[#131315]">Planned</option>
+              <option value="in_progress" className="bg-[#131315]">In Progress</option>
+              <option value="review" className="bg-[#131315]">In Review</option>
+              <option value="done" className="bg-[#131315]">Done</option>
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-[9px] font-bold text-gray-400 font-mono uppercase tracking-wider">
+              Target Selesai
+            </label>
+            <input
+              type="date"
+              value={uiux.dueDate || ''}
+              onChange={(e) => handleFieldChange('dueDate', e.target.value)}
+              className="w-full text-xs border border-white/5 rounded-xl px-3 py-2 bg-[#1A1A1D] text-white outline-none focus:ring-1 focus:ring-[#C5A267] transition font-medium"
+            />
+          </div>
         </div>
 
         {/* Screen layout name */}
@@ -109,6 +131,39 @@ export default function UiuxTab({ node }: UiuxTabProps) {
               </a>
             )}
           </div>
+        </div>
+
+        <div className="space-y-1">
+          <label className="block text-[9px] font-bold text-gray-400 font-mono uppercase tracking-wider">
+            Link Wireframe / Preview
+          </label>
+          <input
+            type="url"
+            value={uiux.wireframeUrl || ''}
+            onChange={(e) => handleFieldChange('wireframeUrl', e.target.value)}
+            placeholder="https://..."
+            className="w-full text-xs border border-white/5 rounded-xl px-3 py-2 bg-[#1A1A1D] text-white outline-none focus:ring-1 focus:ring-[#C5A267] transition font-medium"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label className="block text-[9px] font-bold text-gray-400 font-mono uppercase tracking-wider">
+            State & Aksesibilitas
+          </label>
+          <textarea
+            value={uiux.stateNotes || ''}
+            onChange={(e) => handleFieldChange('stateNotes', e.target.value)}
+            placeholder="Empty/loading/error/success state utama."
+            rows={2}
+            className="w-full text-xs border border-white/5 rounded-xl px-3 py-2 bg-[#1A1A1D] text-white outline-none focus:ring-1 focus:ring-[#C5A267] transition font-medium h-16 resize-none"
+          />
+          <textarea
+            value={uiux.accessibilityNotes || ''}
+            onChange={(e) => handleFieldChange('accessibilityNotes', e.target.value)}
+            placeholder="Kontras, keyboard focus, label form, dan kebutuhan aksesibilitas lain."
+            rows={2}
+            className="w-full text-xs border border-white/5 rounded-xl px-3 py-2 bg-[#1A1A1D] text-white outline-none focus:ring-1 focus:ring-[#C5A267] transition font-medium h-16 resize-none"
+          />
         </div>
 
         {/* Placeholder wireframe mockup generator */}

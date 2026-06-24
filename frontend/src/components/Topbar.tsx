@@ -247,7 +247,7 @@ export default function Topbar() {
                 </div>
 
                 <div className="p-2">
-                  <p className="text-[10px] uppercase font-bold text-[#C5A267] font-mono tracking-wider mb-1.5 px-1.5 mt-1">Struktur Developer</p>
+                  <p className="text-[10px] uppercase font-bold text-[#C5A267] font-mono tracking-wider mb-1.5 px-1.5 mt-1">Kontrak & Interop</p>
                   
                   <button
                     onClick={() => {
@@ -259,7 +259,7 @@ export default function Topbar() {
                     <FileCode className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
                     <div>
                       <p className="font-semibold text-[11px] text-gray-200">JSON Model Kanonik</p>
-                      <p className="text-[9px] text-gray-500">Model data portabel lengkap</p>
+                      <p className="text-[9px] text-gray-500">Model flow portabel lengkap</p>
                     </div>
                   </button>
 

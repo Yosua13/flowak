@@ -63,7 +63,8 @@ export default function Inspector() {
     }
     if (type === 'frontend') {
       const f = node.roles.frontend;
-      return !!(f && (f.assignee || f.status || f.component || f.route || f.link));
+      const legacy = f as typeof f & { component?: string; link?: string };
+      return !!(f && (f.assignee || f.status || f.page || legacy?.component || f.route || f.interaction || f.validation || f.state || f.handoffLink || legacy?.link));
     }
     if (type === 'backend') {
       const f = node.roles.backend;

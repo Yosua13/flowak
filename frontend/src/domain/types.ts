@@ -15,12 +15,17 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export interface BusinessFacet {
   actor?: string;
+  trigger?: string;
   input?: string;
   process?: string;
   output?: string;
   rules?: string;
+  exceptionPath?: string;
   system?: string;
   sla?: string;
+  priority?: string;
+  riskLevel?: string;
+  acceptanceCriteria?: string;
 }
 
 export interface UiuxFacet {
@@ -28,15 +33,24 @@ export interface UiuxFacet {
   status?: Status;
   screen?: string;
   link?: string;
+  wireframeUrl?: string;
+  stateNotes?: string;
+  accessibilityNotes?: string;
+  dueDate?: string;
+  notes?: string;
 }
 
 export interface FrontendFacet {
   assignee?: string;
   status?: Status;
-  component?: string;
+  page?: string;
   route?: string;
-  framework?: string;
-  link?: string;
+  interaction?: string;
+  validation?: string;
+  state?: string;
+  handoffLink?: string;
+  dueDate?: string;
+  notes?: string;
 }
 
 export interface BackendFacet {
@@ -48,6 +62,9 @@ export interface BackendFacet {
   request?: string; // JSON text
   response?: string; // JSON text
   statusCode?: string;
+  errorCodes?: string; // JSON text
+  dueDate?: string;
+  notes?: string;
 }
 
 export interface Node {

@@ -124,10 +124,12 @@ export default function DocView() {
                     <p className="border-b border-white/5 text-[10px] font-bold tracking-wider text-[#C5A267] uppercase font-mono pb-0.5">Spesifikasi Bisnis</p>
                     <div className="text-xs space-y-1.5">
                       <p><strong className="text-gray-400">Aktor Utama:</strong> <span className="text-white print:text-black">{node.doc.actor || 'N/A'}</span></p>
+                      <p><strong className="text-gray-400">Pemicu:</strong> <span className="text-white print:text-black">{node.doc.trigger || 'N/A'}</span></p>
                       <p><strong className="text-gray-400">Input Proses:</strong> <span className="text-white print:text-black">{node.doc.input || 'N/A'}</span></p>
                       <p><strong className="text-gray-400">Uraian Alur:</strong> <span className="text-gray-300 print:text-black">{node.doc.process || 'N/A'}</span></p>
                       <p><strong className="text-gray-400">Output Proses:</strong> <span className="text-white print:text-black">{node.doc.output || 'N/A'}</span></p>
                       <p><strong className="text-gray-400">Target SLA:</strong> <span className="text-white print:text-black">{node.doc.sla || 'N/A'}</span></p>
+                      <p><strong className="text-gray-400">Prioritas/Risiko:</strong> <span className="text-white print:text-black">{node.doc.priority || 'medium'} / {node.doc.riskLevel || 'medium'}</span></p>
                     </div>
                   </div>
 
@@ -147,10 +149,11 @@ export default function DocView() {
                     {/* FE info */}
                     {node.roles.frontend && (
                       <div className="space-y-1 text-xs">
-                        <p className="border-b border-white/5 text-[9px] font-bold tracking-wider text-[#4F9D9F] uppercase font-mono pb-0.5">Implementasi Frontend (Klien)</p>
+                        <p className="border-b border-white/5 text-[9px] font-bold tracking-wider text-[#4F9D9F] uppercase font-mono pb-0.5">Handoff Frontend (Klien)</p>
                         <p><strong className="text-gray-400">Penanggung Jawab:</strong> <span className="text-white print:text-black">{getDisplayAssignee(node.roles.frontend.assignee)}</span></p>
-                        <p><strong className="text-gray-400">Komponen File:</strong> <code className="text-[10px] bg-white/5 px-1 rounded font-mono text-gray-300 print:bg-slate-100">{node.roles.frontend.component || 'N/A'}</code></p>
+                        <p><strong className="text-gray-400">Halaman:</strong> <code className="text-[10px] bg-white/5 px-1 rounded font-mono text-gray-300 print:bg-slate-100">{node.roles.frontend.page || (node.roles.frontend as typeof node.roles.frontend & { component?: string }).component || 'N/A'}</code></p>
                         <p><strong className="text-gray-400">Jalur Rute:</strong> <code className="text-[10px] bg-white/5 px-1 rounded font-mono text-gray-300 print:bg-slate-100">{node.roles.frontend.route || 'N/A'}</code></p>
+                        <p><strong className="text-gray-400">Interaksi:</strong> <span className="text-white print:text-black">{node.roles.frontend.interaction || 'N/A'}</span></p>
                         <p><strong className="text-gray-400">Status Kesiapan:</strong> <span className="font-mono text-[9px] uppercase font-bold text-[#4F9D9F] bg-[#4F9D9F]/5 px-1.5 py-0.5 rounded border border-[#4F9D9F]/20">{node.roles.frontend.status || 'Planned'}</span></p>
                       </div>
                     )}
@@ -173,6 +176,20 @@ export default function DocView() {
                   <div className="pl-4 border-l-2 border-[#C5A267]/50 mt-2 text-xs italic text-gray-400 font-serif text-left">
                     <p className="font-sans font-bold text-[9px] tracking-wider text-[#C5A267] uppercase not-italic mb-1">Kebijakan Logika & Aturan Mutlak:</p>
                     {node.doc.rules}
+                  </div>
+                )}
+
+                {node.doc.exceptionPath && (
+                  <div className="pl-4 border-l-2 border-red-500/50 mt-2 text-xs italic text-gray-400 font-serif text-left">
+                    <p className="font-sans font-bold text-[9px] tracking-wider text-red-400 uppercase not-italic mb-1">Alur Pengecualian:</p>
+                    {node.doc.exceptionPath}
+                  </div>
+                )}
+
+                {node.doc.acceptanceCriteria && (
+                  <div className="pl-4 border-l-2 border-emerald-500/50 mt-2 text-xs italic text-gray-400 font-serif text-left">
+                    <p className="font-sans font-bold text-[9px] tracking-wider text-emerald-400 uppercase not-italic mb-1">Kriteria Selesai:</p>
+                    {node.doc.acceptanceCriteria}
                   </div>
                 )}
 
