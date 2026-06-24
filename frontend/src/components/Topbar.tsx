@@ -38,6 +38,7 @@ export default function Topbar() {
     markAllNotificationsRead,
     clearNotifications,
     addNotification,
+    setSelectedNotif,
   } = useStore();
 
   const activeModule = modules.find((m) => m.id === activeId);
@@ -49,7 +50,6 @@ export default function Topbar() {
   
   const [showNotifMenu, setShowNotifMenu] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
-  const [selectedNotif, setSelectedNotif] = useState<NotificationItem | null>(null);
 
   const notifRef = useRef<HTMLDivElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
@@ -368,46 +368,6 @@ export default function Topbar() {
         </div>
 
       </div>
-
-      {/* Notification Detail Modal */}
-      <AnimatePresence>
-        {selectedNotif && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-[#131315] border border-white/10 w-full max-w-md rounded-2xl p-6 shadow-2xl space-y-4"
-            >
-              <div className="flex items-center justify-between border-b border-white/5 pb-3">
-                <div className="flex items-center space-x-2">
-                  <span className={`w-2.5 h-2.5 rounded-full ${
-                    selectedNotif.type === 'success' ? 'bg-emerald-500' :
-                    selectedNotif.type === 'warning' ? 'bg-rose-500' : 'bg-blue-500'
-                  }`} />
-                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">{selectedNotif.title}</h3>
-                </div>
-                <button
-                  onClick={() => setSelectedNotif(null)}
-                  className="p-1 hover:bg-white/5 rounded-lg text-gray-400 hover:text-white transition cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              <p className="text-xs text-gray-300 leading-relaxed font-sans font-medium">{selectedNotif.message}</p>
-              <div className="flex justify-between items-center pt-2 text-[10px] text-gray-500 font-mono">
-                <span>Waktu: {selectedNotif.timestamp}</span>
-                <button
-                  onClick={() => setSelectedNotif(null)}
-                  className="px-4 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-bold text-white transition cursor-pointer"
-                >
-                  Tutup
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

@@ -52,6 +52,7 @@ interface AppStore {
   connectFrom: ID | null;
   darkMode: boolean;
   notifications: NotificationItem[];
+  selectedNotif: NotificationItem | null;
   teamMembers: TeamMember[];
   projectMembers: TeamMember[];
   dashboardStats: { myTasksCount: number; completionRate: number } | null;
@@ -98,6 +99,7 @@ interface AppStore {
   
   // Actions - Notifications
   addNotification: (title: string, message: string, type?: 'info' | 'success' | 'warning') => void;
+  setSelectedNotif: (notif: NotificationItem | null) => void;
   markAllNotificationsRead: () => void;
   clearNotifications: () => void;
 
@@ -166,6 +168,7 @@ export const useStore = create<AppStore>((set, get) => ({
   teamMembers: [],
   projectMembers: [],
   dashboardStats: null,
+  selectedNotif: null,
   notifications: [
     {
       id: 'notif_1',
@@ -869,6 +872,10 @@ export const useStore = create<AppStore>((set, get) => ({
     set((state) => ({
       notifications: state.notifications.map((n) => ({ ...n, read: true })),
     }));
+  },
+
+  setSelectedNotif: (notif) => {
+    set({ selectedNotif: notif });
   },
 
   clearNotifications: () => {
