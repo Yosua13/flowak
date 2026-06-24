@@ -3,7 +3,6 @@ package handlers
 import (
 	"crypto/rand"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -15,6 +14,7 @@ import (
 	"backend/middleware"
 	"backend/models"
 
+	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -36,18 +36,10 @@ func GenerateUUID() string {
 }
 
 // RegisterHandler registers a new user
-func RegisterHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		w.Write([]byte(`{"error": "Method not allowed"}`))
-		return
-	}
-
+func RegisterHandler(c *gin.Context) {
 	var req models.UserRegisterRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error": "Invalid request body"}`))
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
@@ -58,33 +50,28 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	role := strings.TrimSpace(req.Role)
 
 	if name == "" || email == "" || password == "" || role == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error": "All fields are required"}`))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "All fields are required"})
 		return
 	}
 
 	if len(name) < 2 || len(name) > 100 {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error": "Name must be between 2 and 100 characters"}`))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Name must be between 2 and 100 characters"})
 		return
 	}
 
 	if !emailRegex.MatchString(email) {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error": "Invalid email address format"}`))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid email address format"})
 		return
 	}
 
 	if len(password) < 6 {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error": "Password must be at least 6 characters"}`))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Password must be at least 6 characters"})
 		return
 	}
 
 	// Allowed roles validation
 	if role != "pm" && role != "uiux" && role != "frontend" && role != "backend" {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error": "Invalid role. Must be one of: pm, uiux, frontend, backend"}`))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid role. Must be one of: pm, uiux, frontend, backend"})
 		return
 	}
 
@@ -92,21 +79,18 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	var exists bool
 	err := db.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)", email).Scan(&exists)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error": "Database error checking user"}`))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error checking user"})
 		return
 	}
 	if exists {
-		w.WriteHeader(http.StatusConflict)
-		w.Write([]byte(`{"error": "Email address already registered"}`))
+		c.JSON(http.StatusConflict, gin.H{"error": "Email address already registered"})
 		return
 	}
 
 	// 3. Hash Password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error": "Failed to encrypt password"}`))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to encrypt password"})
 		return
 	}
 
@@ -115,28 +99,22 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	_, err = db.DB.Exec("INSERT INTO users (id, name, email, password_hash, role) VALUES ($1, $2, $3, $4, $5)",
 		userID, name, email, string(hashedPassword), role)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error": "Failed to save user to database"}`))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save user to database"})
 		return
 	}
 
-	w.WriteHeader(http.StatusCreated)
-	w.Write([]byte(fmt.Sprintf(`{"success": true, "message": "User registered successfully", "user_id": "%s"}`, userID)))
+	c.JSON(http.StatusCreated, gin.H{
+		"success": true,
+		"message": "User registered successfully",
+		"user_id": userID,
+	})
 }
 
 // LoginHandler authenticates user and returns JWT
-func LoginHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		w.Write([]byte(`{"error": "Method not allowed"}`))
-		return
-	}
-
+func LoginHandler(c *gin.Context) {
 	var req models.UserLoginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error": "Invalid request body"}`))
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
@@ -144,8 +122,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	password := req.Password
 
 	if email == "" || password == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error": "Email and password are required"}`))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Email and password are required"})
 		return
 	}
 
@@ -157,20 +134,17 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte(`{"error": "Invalid email or password"}`))
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
 			return
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error": "Database query error"}`))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database query error"})
 		return
 	}
 
 	// 2. Compare passwords
 	err = bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password))
 	if err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(`{"error": "Invalid email or password"}`))
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
 		return
 	}
 
@@ -189,8 +163,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString([]byte(config.ActiveConfig.JWTSecret))
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error": "Failed to sign authentication token"}`))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to sign authentication token"})
 		return
 	}
 
@@ -199,5 +172,5 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		User:  user,
 	}
 
-	json.NewEncoder(w).Encode(resp)
+	c.JSON(http.StatusOK, resp)
 }
