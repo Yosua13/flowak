@@ -17,9 +17,10 @@ func hasProjectAccess(userID, projectID string) (bool, error) {
 	var exists bool
 	err := db.DB.QueryRow(`
 		SELECT EXISTS(
-			SELECT 1 FROM projects WHERE id = $1 AND owner_id = $2
+			SELECT 1 FROM projects WHERE id = $1 AND owner_id = $2 AND status = 'active'
 			UNION
-			SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2
+			SELECT 1 FROM project_members pm JOIN projects p ON p.id = pm.project_id
+			WHERE pm.project_id = $1 AND pm.user_id = $2 AND p.status = 'active'
 		)
 	`, projectID, userID).Scan(&exists)
 	return exists, err
@@ -38,7 +39,7 @@ func GetProjectsHandler(c *gin.Context) {
 		SELECT DISTINCT p.id, p.name, p.description, p.owner_id, p.created_at 
 		FROM projects p 
 		LEFT JOIN project_members pm ON p.id = pm.project_id 
-		WHERE p.owner_id = $1 OR pm.user_id = $1 
+		WHERE p.status = 'active' AND (p.owner_id = $1 OR pm.user_id = $1)
 		ORDER BY p.created_at DESC`, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database query error"})
@@ -105,12 +106,23 @@ func CreateProjectHandler(c *gin.Context) {
 		return
 	}
 
+	_, err = tx.Exec(`
+		INSERT INTO project_members (project_id, user_id, project_role, functional_role, added_by)
+		VALUES ($1, $2, 'owner', 'pm', $2)
+		ON CONFLICT (project_id, user_id)
+		DO UPDATE SET project_role = 'owner', functional_role = 'pm'
+	`, projectID, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to assign project owner"})
+		return
+	}
+
 	// Seed a default workflow module inside the project
 	moduleID := "mod_" + GenerateUUID()
 	defaultNodesJSON := "[]"
 	defaultEdgesJSON := "[]"
-	_, err = tx.Exec("INSERT INTO modules (id, project_id, name, description, nodes, edges, schema_version) VALUES ($1, $2, $3, $4, $5, $6, 1)",
-		moduleID, projectID, "Alur Kerja Utama", "Modul alur kerja default untuk proyek baru.", defaultNodesJSON, defaultEdgesJSON)
+	_, err = tx.Exec("INSERT INTO modules (id, project_id, name, description, nodes, edges, schema_version, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $7)",
+		moduleID, projectID, "Alur Kerja Utama", "Modul alur kerja default untuk proyek baru.", defaultNodesJSON, defaultEdgesJSON, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create default workflow module"})
 		return
@@ -151,7 +163,7 @@ func GetProjectDetailHandler(c *gin.Context) {
 
 	// Retrieve project
 	var p models.Project
-	err = db.DB.QueryRow("SELECT id, name, description, owner_id, created_at FROM projects WHERE id = $1", projectID).
+	err = db.DB.QueryRow("SELECT id, name, description, owner_id, created_at FROM projects WHERE id = $1 AND status = 'active'", projectID).
 		Scan(&p.ID, &p.Name, &p.Description, &p.OwnerID, &p.CreatedAt)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get project info"})
@@ -159,7 +171,7 @@ func GetProjectDetailHandler(c *gin.Context) {
 	}
 
 	// Get project modules
-	rows, err := db.DB.Query("SELECT id, project_id, name, description, nodes, edges, schema_version, created_at FROM modules WHERE project_id = $1", projectID)
+	rows, err := db.DB.Query("SELECT id, project_id, name, description, nodes, edges, schema_version, created_at FROM modules WHERE project_id = $1 AND status = 'active'", projectID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database query error for modules"})
 		return
@@ -176,6 +188,10 @@ func GetProjectDetailHandler(c *gin.Context) {
 		var m models.Module
 		if err := rows.Scan(&m.ID, &m.ProjectID, &m.Name, &m.Description, &m.Nodes, &m.Edges, &m.SchemaVersion, &m.CreatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse modules"})
+			return
+		}
+		if err := hydrateModuleGraph(&m); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hydrate workflow graph"})
 			return
 		}
 		modulesList = append(modulesList, m)
@@ -221,8 +237,7 @@ func DeleteProjectHandler(c *gin.Context) {
 		return
 	}
 
-	// Delete the project (cascades automatically)
-	_, err = db.DB.Exec("DELETE FROM projects WHERE id = $1", projectID)
+	_, err = db.DB.Exec("UPDATE projects SET status = 'archived', updated_at = CURRENT_TIMESTAMP WHERE id = $1", projectID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete project"})
 		return
@@ -247,7 +262,7 @@ func GetProjectModulesHandler(c *gin.Context) {
 		return
 	}
 
-	rows, err := db.DB.Query("SELECT id, project_id, name, description, nodes, edges, schema_version, created_at FROM modules WHERE project_id = $1 ORDER BY created_at ASC", projectID)
+	rows, err := db.DB.Query("SELECT id, project_id, name, description, nodes, edges, schema_version, created_at FROM modules WHERE project_id = $1 AND status = 'active' ORDER BY sort_order ASC, created_at ASC", projectID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database query error for modules"})
 		return
@@ -259,6 +274,10 @@ func GetProjectModulesHandler(c *gin.Context) {
 		var m models.Module
 		if err := rows.Scan(&m.ID, &m.ProjectID, &m.Name, &m.Description, &m.Nodes, &m.Edges, &m.SchemaVersion, &m.CreatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse modules"})
+			return
+		}
+		if err := hydrateModuleGraph(&m); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hydrate workflow graph"})
 			return
 		}
 		modulesList = append(modulesList, m)
@@ -324,10 +343,49 @@ func CreateProjectModuleHandler(c *gin.Context) {
 		edgesJSON = string(eb)
 	}
 
-	_, err = db.DB.Exec("INSERT INTO modules (id, project_id, name, description, nodes, edges, schema_version) VALUES ($1, $2, $3, $4, $5, $6, 1)",
-		moduleID, projectID, name, description, nodesJSON, edgesJSON)
+	tx, err := db.DB.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+		return
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec("INSERT INTO modules (id, project_id, name, description, nodes, edges, schema_version, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $7)",
+		moduleID, projectID, name, description, nodesJSON, edgesJSON, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save module"})
+		return
+	}
+
+	if req.Nodes != nil || req.Edges != nil {
+		syncNodes := req.Nodes
+		syncEdges := req.Edges
+		if syncNodes == nil {
+			var rawNodes string
+			if err := tx.QueryRow("SELECT nodes FROM modules WHERE id = $1", moduleID).Scan(&rawNodes); err == nil {
+				var parsed any
+				if json.Unmarshal([]byte(rawNodes), &parsed) == nil {
+					syncNodes = parsed
+				}
+			}
+		}
+		if syncEdges == nil {
+			var rawEdges string
+			if err := tx.QueryRow("SELECT edges FROM modules WHERE id = $1", moduleID).Scan(&rawEdges); err == nil {
+				var parsed any
+				if json.Unmarshal([]byte(rawEdges), &parsed) == nil {
+					syncEdges = parsed
+				}
+			}
+		}
+		if err := syncModuleGraph(tx, moduleID, syncNodes, syncEdges); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit module"})
 		return
 	}
 
@@ -370,22 +428,12 @@ func UpdateModuleHandler(c *gin.Context) {
 		return
 	}
 
-	// Update fields if provided
-	if req.Name != "" {
-		_, err = db.DB.Exec("UPDATE modules SET name = $1 WHERE id = $2", req.Name, moduleID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update module name"})
-			return
-		}
+	tx, err := db.DB.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+		return
 	}
-
-	if req.Description != "" {
-		_, err = db.DB.Exec("UPDATE modules SET description = $1 WHERE id = $2", req.Description, moduleID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update module description"})
-			return
-		}
-	}
+	defer tx.Rollback()
 
 	if req.Nodes != nil {
 		nodesBytes, err := json.Marshal(req.Nodes)
@@ -393,7 +441,7 @@ func UpdateModuleHandler(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid nodes format"})
 			return
 		}
-		_, err = db.DB.Exec("UPDATE modules SET nodes = $1 WHERE id = $2", string(nodesBytes), moduleID)
+		_, err = tx.Exec("UPDATE modules SET nodes = $1, version = version + 1, updated_by = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3", string(nodesBytes), userID, moduleID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update nodes data"})
 			return
@@ -406,11 +454,38 @@ func UpdateModuleHandler(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid edges format"})
 			return
 		}
-		_, err = db.DB.Exec("UPDATE modules SET edges = $1 WHERE id = $2", string(edgesBytes), moduleID)
+		_, err = tx.Exec("UPDATE modules SET edges = $1, updated_by = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3", string(edgesBytes), userID, moduleID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update edges data"})
 			return
 		}
+	}
+
+	if req.Name != "" || req.Description != "" {
+		_, err = tx.Exec(`
+			UPDATE modules
+			SET name = CASE WHEN $1 <> '' THEN $1 ELSE name END,
+				description = CASE WHEN $2 <> '' THEN $2 ELSE description END,
+				updated_by = $3,
+				updated_at = CURRENT_TIMESTAMP
+			WHERE id = $4
+		`, strings.TrimSpace(req.Name), strings.TrimSpace(req.Description), userID, moduleID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update module metadata"})
+			return
+		}
+	}
+
+	if req.Nodes != nil || req.Edges != nil {
+		if err := syncModuleGraph(tx, moduleID, req.Nodes, req.Edges); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit module update"})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Module updated successfully"})
@@ -452,7 +527,7 @@ func DeleteModuleHandler(c *gin.Context) {
 		return
 	}
 
-	_, err = db.DB.Exec("DELETE FROM modules WHERE id = $1", moduleID)
+	_, err = db.DB.Exec("UPDATE modules SET status = 'archived', updated_at = CURRENT_TIMESTAMP WHERE id = $1", moduleID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete module"})
 		return
@@ -494,10 +569,14 @@ func GetProjectMembersHandler(c *gin.Context) {
 	}
 
 	rows, err := db.DB.Query(`
-		SELECT u.id, u.name, u.email, u.role, u.created_at
+		SELECT DISTINCT u.id, u.name, u.email, u.role, u.created_at
 		FROM users u
-		JOIN project_members pm ON u.id = pm.user_id
-		WHERE pm.project_id = $1
+		JOIN (
+			SELECT owner_id AS user_id FROM projects WHERE id = $1
+			UNION
+			SELECT user_id FROM project_members WHERE project_id = $1
+		) members ON u.id = members.user_id
+		WHERE u.status = 'active'
 		ORDER BY u.name ASC`, projectID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database query error for members"})
@@ -565,9 +644,9 @@ func AddProjectMemberHandler(c *gin.Context) {
 	}
 
 	// Ensure target user exists
-	var userExists bool
-	err = db.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", targetUserID).Scan(&userExists)
-	if err != nil || !userExists {
+	var targetRole string
+	err = db.DB.QueryRow("SELECT role FROM users WHERE id = $1 AND status = 'active'", targetUserID).Scan(&targetRole)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "User not found"})
 		return
 	}
@@ -584,7 +663,10 @@ func AddProjectMemberHandler(c *gin.Context) {
 		return
 	}
 
-	_, err = db.DB.Exec("INSERT INTO project_members (project_id, user_id) VALUES ($1, $2)", projectID, targetUserID)
+	_, err = db.DB.Exec(`
+		INSERT INTO project_members (project_id, user_id, project_role, functional_role, added_by)
+		VALUES ($1, $2, 'editor', $3, $4)
+	`, projectID, targetUserID, targetRole, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add member to project"})
 		return
@@ -622,6 +704,11 @@ func RemoveProjectMemberHandler(c *gin.Context) {
 
 	if ownerID != userID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Only the project owner can remove members"})
+		return
+	}
+
+	if targetUserID == ownerID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Project owner cannot be removed from the project"})
 		return
 	}
 
