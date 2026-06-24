@@ -5,11 +5,11 @@
 
 import { create } from 'zustand';
 import { Module, Node, Edge, ID, NodeType, RoleKey, BusinessFacet, Status } from '../domain/types';
-import { canAddEdge, addEdge as domainAddEdge, deleteNode as domainDeleteNode, assertUniqueNodeId, uid } from '../domain/invariants';
-import { persistenceAdapter } from '../infra/persistence';
-import { INITIAL_MODULES, TeamMember, MOCK_TEAM_MEMBERS } from '../config/seedData';
+import { canAddEdge, addEdge as domainAddEdge, deleteNode as domainDeleteNode, uid } from '../domain/invariants';
+import { TeamMember, MOCK_TEAM_MEMBERS } from '../config/seedData';
 
 export type AppView = 'canvas' | 'status' | 'doc' | 'calendar' | 'analytics' | 'kanban' | 'team';
+export type AppScreen = 'login' | 'register' | 'dashboard' | 'workspace';
 
 export interface NotificationItem {
   id: string;
@@ -20,8 +20,31 @@ export interface NotificationItem {
   title: string;
 }
 
+export interface ProjectItem {
+  id: string;
+  name: string;
+  description: string;
+  owner_id: string;
+  created_at: string;
+}
+
 interface AppStore {
-  // State
+  // Authentication State
+  token: string | null;
+  currentUser: {
+    id: string;
+    name: string;
+    email: string;
+    role: 'pm' | 'uiux' | 'frontend' | 'backend';
+  } | null;
+  isAuthenticated: boolean;
+  screen: AppScreen;
+
+  // Project Management State
+  projects: ProjectItem[];
+  activeProjectId: string | null;
+
+  // Workspace/Module State
   modules: Module[];
   activeId: ID | null;
   selectedNodeId: ID | null;
@@ -31,15 +54,30 @@ interface AppStore {
   notifications: NotificationItem[];
   teamMembers: TeamMember[];
 
-  // Actions
+  // Actions - UI/Screen routing
+  setScreen: (screen: AppScreen) => void;
   initializeStore: () => Promise<void>;
+  toggleDarkMode: () => void;
+
+  // Actions - Authentication
+  loginUser: (email: string, password: string) => Promise<boolean>;
+  registerUser: (name: string, email: string, password: string, role: string) => Promise<boolean>;
+  logoutUser: () => void;
+
+  // Actions - Project Management
+  loadProjects: () => Promise<void>;
+  createProject: (name: string, description: string) => Promise<boolean>;
+  deleteProject: (id: string) => Promise<void>;
+  selectProject: (id: string | null) => Promise<void>;
+
+  // Actions - Module management
   addModule: (name: string, description?: string) => void;
   renameModule: (id: ID, name: string, description?: string) => void;
   deleteModule: (id: ID) => void;
   selectModule: (id: ID | null) => void;
   setView: (view: AppView) => void;
   
-  // Node management
+  // Actions - Node management
   addNode: (type: NodeType, label: string) => void;
   moveNode: (id: ID, x: number, y: number) => void;
   updateNode: (id: ID, patch: Partial<Omit<Node, 'id' | 'doc' | 'roles'>>) => void;
@@ -47,22 +85,21 @@ interface AppStore {
   updateRole: (id: ID, role: RoleKey, patch: any) => void;
   deleteNode: (id: ID) => void;
   
-  // Edge management
+  // Actions - Edge management
   addEdge: (from: ID, to: ID, label?: string) => void;
   deleteEdge: (id: ID) => void;
   updateEdgeLabel: (id: ID, label: string) => void;
   
-  // UI Selection
+  // Actions - UI Selection
   selectNode: (id: ID | null) => void;
   setConnectFrom: (id: ID | null) => void;
-  toggleDarkMode: () => void;
   
-  // Notifications
+  // Actions - Notifications
   addNotification: (title: string, message: string, type?: 'info' | 'success' | 'warning') => void;
   markAllNotificationsRead: () => void;
   clearNotifications: () => void;
 
-  // AI & Extra modularity actions
+  // Actions - AI & Extra modularity actions
   loadAiGeneratedFlow: (name: string, description: string, nodes: Node[], edges: Edge[]) => void;
   importModule: (mod: Module) => void;
   addTeamMember: (name: string, email: string, role: string) => void;
@@ -71,15 +108,44 @@ interface AppStore {
 
 let saveTimeout: any = null;
 
-const debouncedSave = (modules: Module[]) => {
+const debouncedSave = (get: any) => {
+  const { activeId, modules, token } = get();
+  if (!activeId || !token) return;
+  const activeMod = modules.find((m: any) => m.id === activeId);
+  if (!activeMod) return;
+
   if (saveTimeout) clearTimeout(saveTimeout);
-  saveTimeout = setTimeout(() => {
-    persistenceAdapter.save(modules);
+  saveTimeout = setTimeout(async () => {
+    try {
+      await fetch(`/api/modules/${activeId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          nodes: activeMod.nodes,
+          edges: activeMod.edges
+        })
+      });
+    } catch (err) {
+      console.error('Failed to sync canvas updates to server:', err);
+    }
   }, 600);
 };
 
 export const useStore = create<AppStore>((set, get) => ({
-  // Initial values
+  // Initial Auth State
+  token: null,
+  currentUser: null,
+  isAuthenticated: false,
+  screen: 'login',
+
+  // Initial Project State
+  projects: [],
+  activeProjectId: null,
+
+  // Initial Workspace/Module State
   modules: [],
   activeId: null,
   selectedNodeId: null,
@@ -91,87 +157,330 @@ export const useStore = create<AppStore>((set, get) => ({
     {
       id: 'notif_1',
       title: 'Selamat Datang!',
-      message: 'Aplikasi Flowak Anda siap digunakan. Cek modul contoh di modul manager.',
+      message: 'Aplikasi Flowak Anda siap digunakan. Silakan kelola alur kerja tim Anda.',
       timestamp: new Date().toLocaleTimeString(),
       read: false,
       type: 'info',
     }
   ],
 
+  setScreen: (screen) => {
+    set({ screen });
+  },
+
   initializeStore: async () => {
-    const loadedModules = await persistenceAdapter.load();
     document.documentElement.classList.add('dark');
-    if (loadedModules && loadedModules.length > 0) {
-      set({
-        modules: loadedModules,
-        activeId: loadedModules[0].id,
-        darkMode: true,
-      });
+    const storedToken = localStorage.getItem('flowak_token');
+    const storedUser = localStorage.getItem('flowak_user');
+
+    if (storedToken && storedUser) {
+      try {
+        const parsedUser = JSON.parse(storedUser);
+        set({
+          token: storedToken,
+          currentUser: parsedUser,
+          isAuthenticated: true,
+          screen: 'dashboard'
+        });
+        await get().loadProjects();
+      } catch (err) {
+        get().logoutUser();
+      }
     } else {
-      // Seed initial module
-      set({
-        modules: INITIAL_MODULES,
-        activeId: INITIAL_MODULES[0].id,
-        darkMode: true,
-      });
-      await persistenceAdapter.save(INITIAL_MODULES);
+      set({ screen: 'login' });
     }
   },
 
-  addModule: (name, description) => {
-    const newMod: Module = {
-      id: `mod_${uid()}`,
-      name,
-      description: description || '',
-      nodes: [],
-      edges: [],
-      schemaVersion: 1,
-    };
+  toggleDarkMode: () => {
     set((state) => {
-      const updated = [...state.modules, newMod];
-      debouncedSave(updated);
-      state.addNotification(
-        'Modul Baru Dibuat',
-        `Modul "${name}" berhasil dibuat secara sukses dan siap dirancang.`,
-        'success'
-      );
-      return {
-        modules: updated,
-        activeId: newMod.id,
-        selectedNodeId: null,
-        connectFrom: null,
-      };
+      const mode = !state.darkMode;
+      if (mode) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+      return { darkMode: mode };
     });
   },
 
-  renameModule: (id, name, description) => {
-    set((state) => {
-      const updated = state.modules.map((m) =>
-        m.id === id ? { ...m, name, description: description !== undefined ? description : m.description } : m
-      );
-      debouncedSave(updated);
-      return { modules: updated };
+  // Authentication Actions
+  loginUser: async (email, password) => {
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        get().addNotification('Gagal Masuk', data.error || 'Autentikasi gagal', 'warning');
+        return false;
+      }
+
+      localStorage.setItem('flowak_token', data.token);
+      localStorage.setItem('flowak_user', JSON.stringify(data.user));
+
+      set({
+        token: data.token,
+        currentUser: data.user,
+        isAuthenticated: true,
+        screen: 'dashboard'
+      });
+
+      get().addNotification('Login Sukses', `Selamat datang kembali, ${data.user.name}!`, 'success');
+      await get().loadProjects();
+      return true;
+    } catch (err) {
+      get().addNotification('Gagal Masuk', 'Koneksi ke server terputus.', 'warning');
+      return false;
+    }
+  },
+
+  registerUser: async (name, email, password, role) => {
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, password, role })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        get().addNotification('Gagal Mendaftar', data.error || 'Registrasi gagal', 'warning');
+        return false;
+      }
+
+      get().addNotification('Registrasi Sukses', 'Akun berhasil dibuat. Silakan masuk.', 'success');
+      set({ screen: 'login' });
+      return true;
+    } catch (err) {
+      get().addNotification('Gagal Mendaftar', 'Koneksi ke server terputus.', 'warning');
+      return false;
+    }
+  },
+
+  logoutUser: () => {
+    localStorage.removeItem('flowak_token');
+    localStorage.removeItem('flowak_user');
+
+    set({
+      token: null,
+      currentUser: null,
+      isAuthenticated: false,
+      screen: 'login',
+      projects: [],
+      activeProjectId: null,
+      modules: [],
+      activeId: null,
+      selectedNodeId: null
     });
   },
 
-  deleteModule: (id) => {
-    set((state) => {
-      const activeMod = state.modules.find((m) => m.id === id);
-      const updated = state.modules.filter((m) => m.id !== id);
-      debouncedSave(updated);
-      const nextActiveId = updated.length > 0 ? updated[0].id : null;
-      state.addNotification(
-        'Modul Dihapus',
-        `Modul "${activeMod?.name || ''}" telah berhasil dihapus secara permanen.`,
-        'warning'
-      );
-      return {
-        modules: updated,
-        activeId: nextActiveId,
+  // Project Management Actions
+  loadProjects: async () => {
+    const { token } = get();
+    if (!token) return;
+
+    try {
+      const res = await fetch('/api/projects', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        set({ projects: data });
+      }
+    } catch (err) {
+      console.error('Failed to load projects:', err);
+    }
+  },
+
+  createProject: async (name, description) => {
+    const { token } = get();
+    if (!token) return false;
+
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ name, description })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        get().addNotification('Proyek Dibuat', `Proyek "${name}" berhasil ditambahkan.`, 'success');
+        await get().loadProjects();
+        return true;
+      } else {
+        get().addNotification('Gagal Membuat Proyek', data.error || 'Terjadi kesalahan', 'warning');
+        return false;
+      }
+    } catch (err) {
+      get().addNotification('Gagal Membuat Proyek', 'Koneksi ke server terputus.', 'warning');
+      return false;
+    }
+  },
+
+  deleteProject: async (id) => {
+    const { token } = get();
+    if (!token) return;
+
+    try {
+      const res = await fetch(`/api/projects/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        get().addNotification('Proyek Dihapus', 'Proyek berhasil dihapus.', 'warning');
+        await get().loadProjects();
+      }
+    } catch (err) {
+      console.error('Failed to delete project:', err);
+    }
+  },
+
+  selectProject: async (projectId) => {
+    const { token } = get();
+    if (!token) return;
+
+    if (!projectId) {
+      set({
+        activeProjectId: null,
+        modules: [],
+        activeId: null,
         selectedNodeId: null,
-        connectFrom: null,
-      };
-    });
+        screen: 'dashboard'
+      });
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        
+        // Parse modules nodes and edges from string back to JSON objects
+        const parsedModules = data.modules.map((m: any) => ({
+          ...m,
+          nodes: typeof m.nodes === 'string' ? JSON.parse(m.nodes) : m.nodes,
+          edges: typeof m.edges === 'string' ? JSON.parse(m.edges) : m.edges
+        }));
+
+        set({
+          activeProjectId: projectId,
+          modules: parsedModules,
+          activeId: parsedModules.length > 0 ? parsedModules[0].id : null,
+          selectedNodeId: null,
+          screen: 'workspace'
+        });
+      } else {
+        get().addNotification('Akses Ditolak', 'Gagal memuat proyek ini.', 'warning');
+      }
+    } catch (err) {
+      console.error('Failed to select project:', err);
+    }
+  },
+
+  // Module Management Actions
+  addModule: async (name, description) => {
+    const { token, activeProjectId } = get();
+    if (!token || !activeProjectId) return;
+
+    try {
+      const res = await fetch(`/api/projects/${activeProjectId}/modules`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ name, description })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        get().addNotification('Modul Ditambahkan', `Modul "${name}" berhasil dibuat.`, 'success');
+        
+        // Reload modules
+        const modRes = await fetch(`/api/projects/${activeProjectId}/modules`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (modRes.ok) {
+          const modData = await modRes.json();
+          const parsedModules = modData.map((m: any) => ({
+            ...m,
+            nodes: typeof m.nodes === 'string' ? JSON.parse(m.nodes) : m.nodes,
+            edges: typeof m.edges === 'string' ? JSON.parse(m.edges) : m.edges
+          }));
+          set({
+            modules: parsedModules,
+            activeId: data.module_id,
+            selectedNodeId: null
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to add module:', err);
+    }
+  },
+
+  renameModule: async (id, name, description) => {
+    const { token, activeProjectId } = get();
+    if (!token || !activeProjectId) return;
+
+    try {
+      const res = await fetch(`/api/modules/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ name, description })
+      });
+
+      if (res.ok) {
+        set((state) => {
+          const updated = state.modules.map((m) =>
+            m.id === id ? { ...m, name, description: description !== undefined ? description : m.description } : m
+          );
+          return { modules: updated };
+        });
+      }
+    } catch (err) {
+      console.error('Failed to rename module:', err);
+    }
+  },
+
+  deleteModule: async (id) => {
+    const { token, activeProjectId } = get();
+    if (!token || !activeProjectId) return;
+
+    try {
+      const res = await fetch(`/api/modules/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (res.ok) {
+        get().addNotification('Modul Dihapus', 'Modul berhasil dihapus secara permanen.', 'warning');
+        
+        set((state) => {
+          const updated = state.modules.filter((m) => m.id !== id);
+          const nextActiveId = updated.length > 0 ? updated[0].id : null;
+          return {
+            modules: updated,
+            activeId: nextActiveId,
+            selectedNodeId: null
+          };
+        });
+      }
+    } catch (err) {
+      console.error('Failed to delete module:', err);
+    }
   },
 
   selectModule: (id) => {
@@ -186,11 +495,11 @@ export const useStore = create<AppStore>((set, get) => ({
     set({ view });
   },
 
+  // Node Management Actions
   addNode: (type, label) => {
-    const { activeId, modules, addNotification } = get();
+    const { activeId, modules } = get();
     if (!activeId) return;
 
-    // Determine default assignee based on node type
     let defaultAssignee = MOCK_TEAM_MEMBERS[1].name; // Rian (UI/UX)
     if (type === 'system' || type === 'decision') {
       defaultAssignee = MOCK_TEAM_MEMBERS[3].name; // Budi (BE)
@@ -202,7 +511,7 @@ export const useStore = create<AppStore>((set, get) => ({
       id: `node_${uid()}`,
       type,
       label,
-      x: 150 + Math.random() * 100, // Small random offset to avoid overlapping
+      x: 150 + Math.random() * 100,
       y: 150 + Math.random() * 100,
       doc: {
         actor: type === 'actor' ? 'Petugas / User' : 'Sistem',
@@ -252,11 +561,11 @@ export const useStore = create<AppStore>((set, get) => ({
     });
 
     set({ modules: updated, selectedNodeId: newNode.id });
-    debouncedSave(updated);
+    debouncedSave(get);
 
-    addNotification(
+    get().addNotification(
       'Langkah Baru Ditambahkan',
-      `Langkah dengan tipe "${type}" bernama "${label}" telah ditambahkan ke alur kerja.`,
+      `Langkah dengan tipe "${type}" bernama "${label}" telah ditambahkan.`,
       'success'
     );
   },
@@ -276,7 +585,7 @@ export const useStore = create<AppStore>((set, get) => ({
     });
 
     set({ modules: updated });
-    debouncedSave(updated);
+    debouncedSave(get);
   },
 
   updateNode: (id, patch) => {
@@ -294,7 +603,7 @@ export const useStore = create<AppStore>((set, get) => ({
     });
 
     set({ modules: updated });
-    debouncedSave(updated);
+    debouncedSave(get);
   },
 
   updateDoc: (id, fields) => {
@@ -312,11 +621,11 @@ export const useStore = create<AppStore>((set, get) => ({
     });
 
     set({ modules: updated });
-    debouncedSave(updated);
+    debouncedSave(get);
   },
 
   updateRole: (id, role, patch) => {
-    const { activeId, modules, addNotification } = get();
+    const { activeId, modules } = get();
     if (!activeId) return;
 
     let preStatus: Status | undefined;
@@ -348,31 +657,40 @@ export const useStore = create<AppStore>((set, get) => ({
       return m;
     });
 
-    // Notify on status change
+    // Notify status change
     if (preStatus !== postStatus && postStatus) {
       const activeNode = modules.find((m) => m.id === activeId)?.nodes.find((n) => n.id === id);
       if (activeNode) {
-        addNotification(
+        get().addNotification(
           'Ubah Progres Tugas',
-          `Status peran ${role.toUpperCase()} untuk langkah "${activeNode.label}" diperbarui dari [${preStatus || 'Belum Ada'}] ke [${postStatus.toUpperCase()}].`,
+          `Status peran ${role.toUpperCase()} untuk "${activeNode.label}" diperbarui ke [${postStatus.toUpperCase()}].`,
           postStatus === 'done' ? 'success' : 'info'
         );
       }
     }
 
     set({ modules: updated });
-    debouncedSave(updated);
+    debouncedSave(get);
   },
 
   deleteNode: (id) => {
-    const { activeId, modules, addNotification } = get();
+    const { activeId, modules } = get();
     if (!activeId) return;
 
     const activeMod = modules.find((m) => m.id === activeId);
     if (!activeMod) return;
 
     const deletingNodeName = activeMod.nodes.find((n) => n.id === id)?.label || 'Langkah';
-    const updatedMod = domainDeleteNode(activeMod, id);
+    
+    // Delete logic helper
+    const filteredNodes = activeMod.nodes.filter((n) => n.id !== id);
+    const filteredEdges = activeMod.edges.filter((e) => e.from !== id && e.to !== id);
+    
+    const updatedMod = {
+      ...activeMod,
+      nodes: filteredNodes,
+      edges: filteredEdges
+    };
 
     const updated = modules.map((m) => (m.id === activeId ? updatedMod : m));
 
@@ -381,17 +699,18 @@ export const useStore = create<AppStore>((set, get) => ({
       selectedNodeId: null,
       connectFrom: null,
     });
-    debouncedSave(updated);
+    debouncedSave(get);
 
-    addNotification(
+    get().addNotification(
       'Hapus Langkah Alur',
-      `Langkah "${deletingNodeName}" beserta relasi sambungannya berhasil dihapus.`,
+      `Langkah "${deletingNodeName}" berhasil dihapus.`,
       'warning'
     );
   },
 
+  // Edge Management Actions
   addEdge: (from, to, label) => {
-    const { activeId, modules, addNotification } = get();
+    const { activeId, modules } = get();
     if (!activeId) return;
 
     const activeMod = modules.find((m) => m.id === activeId);
@@ -401,33 +720,44 @@ export const useStore = create<AppStore>((set, get) => ({
     const toNodeLabel = activeMod.nodes.find((n) => n.id === to)?.label || 'Tujuan';
 
     if (!canAddEdge(activeMod, from, to)) {
-      addNotification(
+      get().addNotification(
         'Sambungan Ditolak',
-        `Koneksi dari "${fromNodeLabel}" ke "${toNodeLabel}" melanggar batas aturan (duplikat atau putaran mandiri).`,
+        `Koneksi dari "${fromNodeLabel}" ke "${toNodeLabel}" melanggar aturan.`,
         'warning'
       );
       set({ connectFrom: null });
       return;
     }
 
-    const updatedMod = domainAddEdge(activeMod, from, to, label);
+    const newEdge: Edge = {
+      id: `edge_${uid()}`,
+      from,
+      to,
+      label: label || '',
+    };
+
+    const updatedMod = {
+      ...activeMod,
+      edges: [...activeMod.edges, newEdge]
+    };
+
     const updated = modules.map((m) => (m.id === activeId ? updatedMod : m));
 
     set({
       modules: updated,
       connectFrom: null,
     });
-    debouncedSave(updated);
+    debouncedSave(get);
 
-    addNotification(
+    get().addNotification(
       'Koneksi Berhasil',
-      `Menghubungkan "${fromNodeLabel}" ke "${toNodeLabel}" dengan sukses.`,
+      `Menghubungkan "${fromNodeLabel}" ke "${toNodeLabel}".`,
       'success'
     );
   },
 
   deleteEdge: (id) => {
-    const { activeId, modules, addNotification } = get();
+    const { activeId, modules } = get();
     if (!activeId) return;
 
     const updated = modules.map((m) => {
@@ -441,9 +771,9 @@ export const useStore = create<AppStore>((set, get) => ({
     });
 
     set({ modules: updated });
-    debouncedSave(updated);
+    debouncedSave(get);
 
-    addNotification(
+    get().addNotification(
       'Koneksi Dihapus',
       `Hubungan alur kerja sukses dicabut.`,
       'warning'
@@ -451,7 +781,7 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   updateEdgeLabel: (id, label) => {
-    const { activeId, modules, addNotification } = get();
+    const { activeId, modules } = get();
     if (!activeId) return;
 
     const updated = modules.map((m) => {
@@ -465,13 +795,7 @@ export const useStore = create<AppStore>((set, get) => ({
     });
 
     set({ modules: updated });
-    debouncedSave(updated);
-
-    addNotification(
-      'Label Koneksi Diperbarui',
-      `Label hubungan alur kerja diperbarui menjadi "${label || '(Tanpa Label)'}".`,
-      'success'
-    );
+    debouncedSave(get);
   },
 
   selectNode: (id) => {
@@ -482,18 +806,7 @@ export const useStore = create<AppStore>((set, get) => ({
     set({ connectFrom: id });
   },
 
-  toggleDarkMode: () => {
-    set((state) => {
-      const mode = !state.darkMode;
-      if (mode) {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
-      return { darkMode: mode };
-    });
-  },
-
+  // Notification Management Actions
   addNotification: (title, message, type = 'info') => {
     const newNotif: NotificationItem = {
       id: `notif_${uid()}`,
@@ -504,10 +817,9 @@ export const useStore = create<AppStore>((set, get) => ({
       type,
     };
     set((state) => ({
-      notifications: [newNotif, ...state.notifications].slice(0, 50), // Cap at 50
+      notifications: [newNotif, ...state.notifications].slice(0, 50),
     }));
 
-    // Trigger standard Notification API simulation
     if (Notification.permission === 'granted') {
       try {
         new Notification(`Flowak: ${title}`, {
@@ -530,67 +842,95 @@ export const useStore = create<AppStore>((set, get) => ({
     set({ notifications: [] });
   },
 
+  // AI & Extra modularity actions
   loadAiGeneratedFlow: (name, description, nodes, edges) => {
-    const { modules, addNotification } = get();
-    const newModuleId = `mod_${uid()}`;
-    const newMod: Module = {
-      id: newModuleId,
-      name,
-      description,
-      nodes,
-      edges,
-      schemaVersion: 1,
-    };
-    
-    const updated = [...modules, newMod];
-    set({
-      modules: updated,
-      activeId: newModuleId,
-      selectedNodeId: null,
-      connectFrom: null,
-    });
-    debouncedSave(updated);
+    const { activeProjectId, token } = get();
+    if (!activeProjectId || !token) return;
 
-    addNotification(
-      'Alur Kerja AI Berhasil',
-      `Modul "${name}" berhasil dirancang menggunakan asisten AI.`,
-      'success'
-    );
+    // AI flows generated on canvas need to be saved to database
+    // We create a new module with the generated flow
+    get().addModule(name, description);
+    
+    // Once activeId is set to new module, we load it in state
+    setTimeout(() => {
+      const { activeId, modules } = get();
+      if (!activeId) return;
+
+      const updated = modules.map((m) => {
+        if (m.id === activeId) {
+          return {
+            ...m,
+            nodes,
+            edges
+          };
+        }
+        return m;
+      });
+
+      set({ modules: updated });
+      debouncedSave(get);
+
+      get().addNotification(
+        'Alur AI Dimuat',
+        `Alur kerja "${name}" dari asisten AI sukses dimuat.`,
+        'success'
+      );
+    }, 1000);
   },
 
-  importModule: (mod) => {
-    const { modules, addNotification } = get();
-    // Validate module
+  importModule: async (mod) => {
+    const { token, activeProjectId } = get();
+    if (!token || !activeProjectId) return;
+
     if (!mod || !mod.name || !Array.isArray(mod.nodes)) {
-      addNotification('Impor Gagal', 'Format file JSON modul tidak valid.', 'warning');
+      get().addNotification('Impor Gagal', 'Format file JSON modul tidak valid.', 'warning');
       return;
     }
-    
-    // Assign generic ID if not matching format to prevent collisions
-    const importedId = mod.id && !modules.find(m => m.id === mod.id) ? mod.id : `mod_imported_${uid()}`;
-    const newMod: Module = {
-      ...mod,
-      id: importedId,
-    };
-    
-    const updated = [...modules, newMod];
-    set({
-      modules: updated,
-      activeId: importedId,
-      selectedNodeId: null,
-      connectFrom: null,
-    });
-    debouncedSave(updated);
 
-    addNotification(
-      'Modul Berhasil Diimpor',
-      `Modul "${mod.name}" berhasil dimuat ke dalam workspace.`,
-      'success'
-    );
+    try {
+      const res = await fetch(`/api/projects/${activeProjectId}/modules`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          name: mod.name,
+          description: mod.description || '',
+          nodes: mod.nodes,
+          edges: mod.edges || []
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        get().addNotification('Modul Diimpor', `Modul "${mod.name}" berhasil diimpor.`, 'success');
+        
+        // Reload modules
+        const modRes = await fetch(`/api/projects/${activeProjectId}/modules`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (modRes.ok) {
+          const modData = await modRes.json();
+          const parsedModules = modData.map((m: any) => ({
+            ...m,
+            nodes: typeof m.nodes === 'string' ? JSON.parse(m.nodes) : m.nodes,
+            edges: typeof m.edges === 'string' ? JSON.parse(m.edges) : m.edges
+          }));
+          set({
+            modules: parsedModules,
+            activeId: data.module_id,
+            selectedNodeId: null
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to import module:', err);
+    }
   },
 
   addTeamMember: (name, email, role) => {
-    const { teamMembers, addNotification } = get();
+    const { teamMembers } = get();
     const newMember: TeamMember = {
       id: `member_${uid()}`,
       name,
@@ -600,15 +940,15 @@ export const useStore = create<AppStore>((set, get) => ({
     };
     const updated = [...teamMembers, newMember];
     set({ teamMembers: updated });
-    addNotification('Anggota Tim Ditambahkan', `${name} dimasukkan ke daftar kontributor sebagai ${role.toUpperCase()}.`, 'success');
+    get().addNotification('Anggota Tim Ditambahkan', `${name} dimasukkan ke daftar kontributor sebagai ${role.toUpperCase()}.`, 'success');
   },
 
   deleteTeamMember: (id) => {
-    const { teamMembers, addNotification } = get();
+    const { teamMembers } = get();
     const target = teamMembers.find(m => m.id === id);
     if (!target) return;
     const updated = teamMembers.filter(m => m.id !== id);
     set({ teamMembers: updated });
-    addNotification('Anggota Tim Dihentikan', `${target.name} telah dikeluarkan dari panel kontributor.`, 'warning');
+    get().addNotification('Anggota Tim Dihentikan', `${target.name} telah dikeluarkan dari panel kontributor.`, 'warning');
   }
 }));
