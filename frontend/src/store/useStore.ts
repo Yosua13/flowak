@@ -5,8 +5,8 @@
 
 import { create } from 'zustand';
 import { Module, Node, Edge, ID, NodeType, RoleKey, BusinessFacet, Status } from '../domain/types';
-import { canAddEdge, addEdge as domainAddEdge, deleteNode as domainDeleteNode, uid } from '../domain/invariants';
-import { TeamMember, MOCK_TEAM_MEMBERS } from '../config/seedData';
+import { canAddEdge, addEdge as domainAddEdge, uid } from '../domain/invariants';
+import { TeamMember } from '../config/seedData';
 
 export type AppView = 'canvas' | 'status' | 'doc' | 'calendar' | 'analytics' | 'kanban' | 'team';
 export type AppScreen = 'login' | 'register' | 'dashboard' | 'workspace';
@@ -102,8 +102,11 @@ interface AppStore {
   // Actions - AI & Extra modularity actions
   loadAiGeneratedFlow: (name: string, description: string, nodes: Node[], edges: Edge[]) => void;
   importModule: (mod: Module) => void;
-  addTeamMember: (name: string, email: string, role: string) => void;
-  deleteTeamMember: (id: string) => void;
+  
+  // Actions - Team Management API
+  loadTeamMembers: () => Promise<void>;
+  addTeamMember: (name: string, email: string, role: string) => Promise<void>;
+  deleteTeamMember: (id: string) => Promise<void>;
 }
 
 let saveTimeout: any = null;
@@ -152,7 +155,7 @@ export const useStore = create<AppStore>((set, get) => ({
   view: 'canvas',
   connectFrom: null,
   darkMode: true,
-  teamMembers: MOCK_TEAM_MEMBERS,
+  teamMembers: [],
   notifications: [
     {
       id: 'notif_1',
@@ -183,6 +186,7 @@ export const useStore = create<AppStore>((set, get) => ({
           screen: 'dashboard'
         });
         await get().loadProjects();
+        await get().loadTeamMembers();
       } catch (err) {
         get().logoutUser();
       }
@@ -230,6 +234,7 @@ export const useStore = create<AppStore>((set, get) => ({
 
       get().addNotification('Login Sukses', `Selamat datang kembali, ${data.user.name}!`, 'success');
       await get().loadProjects();
+      await get().loadTeamMembers();
       return true;
     } catch (err) {
       get().addNotification('Gagal Masuk', 'Koneksi ke server terputus.', 'warning');
@@ -273,7 +278,8 @@ export const useStore = create<AppStore>((set, get) => ({
       activeProjectId: null,
       modules: [],
       activeId: null,
-      selectedNodeId: null
+      selectedNodeId: null,
+      teamMembers: []
     });
   },
 
@@ -378,6 +384,9 @@ export const useStore = create<AppStore>((set, get) => ({
           selectedNodeId: null,
           screen: 'workspace'
         });
+
+        // Sync team list from DB
+        await get().loadTeamMembers();
       } else {
         get().addNotification('Akses Ditolak', 'Gagal memuat proyek ini.', 'warning');
       }
@@ -497,14 +506,21 @@ export const useStore = create<AppStore>((set, get) => ({
 
   // Node Management Actions
   addNode: (type, label) => {
-    const { activeId, modules } = get();
+    const { activeId, modules, teamMembers } = get();
     if (!activeId) return;
 
-    let defaultAssignee = MOCK_TEAM_MEMBERS[1].name; // Rian (UI/UX)
+    // Helper to find assignees dynamically from database users list
+    const findAssignee = (r: 'pm' | 'uiux' | 'frontend' | 'backend', fallback: string) => {
+      const match = teamMembers.find(m => m.role === r);
+      return match ? match.name : fallback;
+    };
+
+    // Retrieve default assignee based on node type
+    let defaultAssignee = findAssignee('uiux', 'Rian');
     if (type === 'system' || type === 'decision') {
-      defaultAssignee = MOCK_TEAM_MEMBERS[3].name; // Budi (BE)
+      defaultAssignee = findAssignee('backend', 'Budi');
     } else if (type === 'process') {
-      defaultAssignee = MOCK_TEAM_MEMBERS[2].name; // Siti (FE)
+      defaultAssignee = findAssignee('frontend', 'Siti');
     }
 
     const newNode: Node = {
@@ -524,13 +540,13 @@ export const useStore = create<AppStore>((set, get) => ({
       },
       roles: {
         uiux: {
-          assignee: MOCK_TEAM_MEMBERS[1].name,
+          assignee: findAssignee('uiux', 'Rian'),
           status: 'planned',
           screen: '',
           link: '',
         },
         frontend: {
-          assignee: MOCK_TEAM_MEMBERS[2].name,
+          assignee: findAssignee('frontend', 'Siti'),
           status: 'planned',
           component: '',
           route: '',
@@ -538,7 +554,9 @@ export const useStore = create<AppStore>((set, get) => ({
           link: '',
         },
         backend: {
-          assignee: type === 'system' ? MOCK_TEAM_MEMBERS[4].name : MOCK_TEAM_MEMBERS[3].name,
+          assignee: type === 'system'
+            ? (teamMembers.filter(m => m.role === 'backend')[1]?.name || findAssignee('backend', 'Arief'))
+            : findAssignee('backend', 'Budi'),
           status: 'planned',
           method: 'POST',
           endpoint: '',
@@ -929,26 +947,74 @@ export const useStore = create<AppStore>((set, get) => ({
     }
   },
 
-  addTeamMember: (name, email, role) => {
-    const { teamMembers } = get();
-    const newMember: TeamMember = {
-      id: `member_${uid()}`,
-      name,
-      email,
-      role: role as 'pm' | 'uiux' | 'frontend' | 'backend',
-      avatar: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&fit=crop`,
-    };
-    const updated = [...teamMembers, newMember];
-    set({ teamMembers: updated });
-    get().addNotification('Anggota Tim Ditambahkan', `${name} dimasukkan ke daftar kontributor sebagai ${role.toUpperCase()}.`, 'success');
+  // Team Management Actions connected to Backend DB API
+  loadTeamMembers: async () => {
+    const { token } = get();
+    if (!token) return;
+
+    try {
+      const res = await fetch('/api/users', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        set({ teamMembers: data });
+      }
+    } catch (err) {
+      console.error('Failed to load team members:', err);
+    }
   },
 
-  deleteTeamMember: (id) => {
-    const { teamMembers } = get();
-    const target = teamMembers.find(m => m.id === id);
-    if (!target) return;
-    const updated = teamMembers.filter(m => m.id !== id);
-    set({ teamMembers: updated });
-    get().addNotification('Anggota Tim Dihentikan', `${target.name} telah dikeluarkan dari panel kontributor.`, 'warning');
+  addTeamMember: async (name, email, role) => {
+    const { token } = get();
+    if (!token) return;
+
+    try {
+      const res = await fetch('/api/users', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ name, email, role })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        get().addNotification('Anggota Tim Ditambahkan', `${name} dimasukkan ke daftar kontributor.`, 'success');
+        await get().loadTeamMembers();
+      } else {
+        get().addNotification('Gagal Menambahkan Anggota', data.error || 'Terjadi kesalahan', 'warning');
+      }
+    } catch (err) {
+      get().addNotification('Gagal Menambahkan Anggota', 'Koneksi ke server terputus.', 'warning');
+    }
+  },
+
+  deleteTeamMember: async (id) => {
+    const { token, currentUser } = get();
+    if (!token) return;
+
+    if (currentUser && currentUser.id === id) {
+      get().addNotification('Tindakan Dicegah', 'Anda tidak dapat menghapus akun Anda sendiri.', 'warning');
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/users/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        get().addNotification('Anggota Tim Dihentikan', 'Kontributor telah dihapus.', 'warning');
+        await get().loadTeamMembers();
+      } else {
+        get().addNotification('Gagal Mengeluarkan Anggota', data.error || 'Terjadi kesalahan', 'warning');
+      }
+    } catch (err) {
+      get().addNotification('Gagal Mengeluarkan Anggota', 'Koneksi ke server terputus.', 'warning');
+    }
   }
 }));

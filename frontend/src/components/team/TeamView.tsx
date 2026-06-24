@@ -8,7 +8,7 @@ import { useStore } from '../../store/useStore';
 import { Users, Plus, Mail, ShieldAlert, Award, Trash2 } from 'lucide-react';
 
 export default function TeamView() {
-  const { teamMembers, addTeamMember, deleteTeamMember } = useStore();
+  const { teamMembers, addTeamMember, deleteTeamMember, currentUser } = useStore();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -84,8 +84,8 @@ export default function TeamView() {
                   </div>
                 </div>
 
-                {/* Restrict deleting core seeded members to promote layout stability */}
-                {member.id.startsWith('member_') ? (
+                {/* Prevent deleting own logged in user */}
+                {currentUser && member.id !== currentUser.id ? (
                   <button
                     onClick={() => deleteTeamMember(member.id)}
                     className="p-2 border border-red-500/10 hover:bg-red-500/10 rounded-xl text-red-400 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
@@ -94,7 +94,7 @@ export default function TeamView() {
                     <Trash2 className="w-4 h-4" />
                   </button>
                 ) : (
-                  <span className="text-[8px] font-mono font-bold text-gray-650 tracking-widest">SISTEM</span>
+                  <span className="text-[8px] font-mono font-bold text-gray-500 tracking-widest">ANDA</span>
                 )}
               </div>
             ))}
