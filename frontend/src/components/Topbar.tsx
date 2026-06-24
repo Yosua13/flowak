@@ -115,7 +115,7 @@ export default function Topbar() {
   ];
 
   return (
-    <div className="h-16 px-6 bg-[#111113]/90 backdrop-blur-md border-b border-white/5 flex items-center justify-between z-10 select-none shadow-[0_1px_10px_rgba(0,0,0,0.3)]">
+    <div className="h-16 px-6 bg-[#111113]/90 backdrop-blur-md border-b border-white/5 flex items-center justify-between z-40 select-none shadow-[0_1px_10px_rgba(0,0,0,0.3)]">
       
       {/* Module Title Section */}
       <div className="flex-1 max-w-sm mr-4">
@@ -156,6 +156,9 @@ export default function Topbar() {
         ) : (
           <div className="group cursor-pointer flex items-start space-x-2" onClick={() => setIsEditingName(true)}>
             <div className="text-left">
+              <span className="text-[9px] font-mono text-[#C5A267] block mb-0.5 select-all hover:underline" title="Salin URL halaman">
+                {window.location.origin}/{view === 'canvas' ? 'kanvas' : view === 'status' ? 'status' : view === 'doc' ? 'spesifikasi' : view === 'calendar' ? 'jadwal' : view === 'analytics' ? 'analitik' : view === 'kanban' ? 'kanban' : 'tim'}/
+              </span>
               <div className="flex items-center space-x-1.5">
                 <h2 className="text-sm font-bold text-white tracking-tight font-sans">
                   {activeModule.name}

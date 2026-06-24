@@ -160,3 +160,116 @@ func UserDetailHandler(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"error": "Method not allowed"}`))
 	}
 }
+
+// UserDashboardStatsHandler retrieves tasks stats for the user's dashboard
+func UserDashboardStatsHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	userID, err := middleware.GetUserID(r)
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"error": "Unauthorized"}`))
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		w.Write([]byte(`{"error": "Method not allowed"}`))
+		return
+	}
+
+	// 1. Get user name
+	var name string
+	err = db.DB.QueryRow("SELECT name FROM users WHERE id = $1", userID).Scan(&name)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error": "Failed to query user profile"}`))
+		return
+	}
+
+	// 2. Query all modules of projects user has access to
+	rows, err := db.DB.Query(`
+		SELECT m.nodes 
+		FROM modules m
+		JOIN projects p ON m.project_id = p.id
+		LEFT JOIN project_members pm ON p.id = pm.project_id
+		WHERE p.owner_id = $1 OR pm.user_id = $1
+	`, userID)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error": "Failed to query workflow tasks"}`))
+		return
+	}
+	defer rows.Close()
+
+	type NodeRole struct {
+		Assignee string `json:"assignee"`
+		Status   string `json:"status"`
+	}
+	type NodeFacet struct {
+		Uiux     *NodeRole `json:"uiux"`
+		Frontend *NodeRole `json:"frontend"`
+		Backend  *NodeRole `json:"backend"`
+	}
+	type NodeJson struct {
+		Roles NodeFacet `json:"roles"`
+	}
+
+	myTasksCount := 0
+	completedTasksCount := 0
+	totalTasksCount := 0
+
+	for rows.Next() {
+		var nodesStr string
+		if err := rows.Scan(&nodesStr); err != nil {
+			continue
+		}
+		var nodes []NodeJson
+		if err := json.Unmarshal([]byte(nodesStr), &nodes); err != nil {
+			continue
+		}
+		for _, node := range nodes {
+			// Check UI/UX
+			if node.Roles.Uiux != nil {
+				totalTasksCount++
+				if node.Roles.Uiux.Status == "done" {
+					completedTasksCount++
+				} else if node.Roles.Uiux.Assignee == name {
+					myTasksCount++
+				}
+			}
+			// Check Frontend
+			if node.Roles.Frontend != nil {
+				totalTasksCount++
+				if node.Roles.Frontend.Status == "done" {
+					completedTasksCount++
+				} else if node.Roles.Frontend.Assignee == name {
+					myTasksCount++
+				}
+			}
+			// Check Backend
+			if node.Roles.Backend != nil {
+				totalTasksCount++
+				if node.Roles.Backend.Status == "done" {
+					completedTasksCount++
+				} else if node.Roles.Backend.Assignee == name {
+					myTasksCount++
+				}
+			}
+		}
+	}
+
+	completionRate := 0
+	if totalTasksCount > 0 {
+		completionRate = (completedTasksCount * 100) / totalTasksCount
+	}
+
+	resp := struct {
+		MyTasksCount   int `json:"my_tasks_count"`
+		CompletionRate int `json:"completion_rate"`
+	}{
+		MyTasksCount:   myTasksCount,
+		CompletionRate: completionRate,
+	}
+
+	json.NewEncoder(w).Encode(resp)
+}

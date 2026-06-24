@@ -53,6 +53,8 @@ interface AppStore {
   darkMode: boolean;
   notifications: NotificationItem[];
   teamMembers: TeamMember[];
+  projectMembers: TeamMember[];
+  dashboardStats: { myTasksCount: number; completionRate: number } | null;
 
   // Actions - UI/Screen routing
   setScreen: (screen: AppScreen) => void;
@@ -107,6 +109,12 @@ interface AppStore {
   loadTeamMembers: () => Promise<void>;
   addTeamMember: (name: string, email: string, role: string) => Promise<void>;
   deleteTeamMember: (id: string) => Promise<void>;
+
+  // Actions - Project Members Management API
+  loadProjectMembers: () => Promise<void>;
+  addProjectMember: (userId: string) => Promise<boolean>;
+  deleteProjectMember: (userId: string) => Promise<boolean>;
+  loadDashboardStats: () => Promise<void>;
 }
 
 let saveTimeout: any = null;
@@ -156,6 +164,8 @@ export const useStore = create<AppStore>((set, get) => ({
   connectFrom: null,
   darkMode: true,
   teamMembers: [],
+  projectMembers: [],
+  dashboardStats: null,
   notifications: [
     {
       id: 'notif_1',
@@ -279,7 +289,9 @@ export const useStore = create<AppStore>((set, get) => ({
       modules: [],
       activeId: null,
       selectedNodeId: null,
-      teamMembers: []
+      teamMembers: [],
+      projectMembers: [],
+      dashboardStats: null
     });
   },
 
@@ -295,6 +307,8 @@ export const useStore = create<AppStore>((set, get) => ({
       if (res.ok) {
         const data = await res.json();
         set({ projects: data });
+        // Fetch dashboard stats as well
+        get().loadDashboardStats();
       }
     } catch (err) {
       console.error('Failed to load projects:', err);
@@ -387,6 +401,7 @@ export const useStore = create<AppStore>((set, get) => ({
 
         // Sync team list from DB
         await get().loadTeamMembers();
+        await get().loadProjectMembers();
       } else {
         get().addNotification('Akses Ditolak', 'Gagal memuat proyek ini.', 'warning');
       }
@@ -1015,6 +1030,94 @@ export const useStore = create<AppStore>((set, get) => ({
       }
     } catch (err) {
       get().addNotification('Gagal Mengeluarkan Anggota', 'Koneksi ke server terputus.', 'warning');
+    }
+  },
+
+  loadProjectMembers: async () => {
+    const { token, activeProjectId } = get();
+    if (!token || !activeProjectId) return;
+
+    try {
+      const res = await fetch(`/api/projects/${activeProjectId}/members`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        set({ projectMembers: data });
+      }
+    } catch (err) {
+      console.error('Failed to load project members:', err);
+    }
+  },
+
+  addProjectMember: async (userId) => {
+    const { token, activeProjectId } = get();
+    if (!token || !activeProjectId) return false;
+
+    try {
+      const res = await fetch(`/api/projects/${activeProjectId}/members`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ user_id: userId })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        get().addNotification('Anggota Ditambahkan', 'Anggota tim berhasil ditambahkan ke proyek.', 'success');
+        await get().loadProjectMembers();
+        return true;
+      } else {
+        get().addNotification('Gagal Menambahkan Anggota', data.error || 'Terjadi kesalahan', 'warning');
+        return false;
+      }
+    } catch (err) {
+      get().addNotification('Gagal Menambahkan Anggota', 'Koneksi ke server terputus.', 'warning');
+      return false;
+    }
+  },
+
+  deleteProjectMember: async (userId) => {
+    const { token, activeProjectId } = get();
+    if (!token || !activeProjectId) return false;
+
+    try {
+      const res = await fetch(`/api/projects/${activeProjectId}/members/${userId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        get().addNotification('Anggota Dihapus', 'Anggota tim telah dihapus dari proyek.', 'warning');
+        await get().loadProjectMembers();
+        return true;
+      } else {
+        get().addNotification('Gagal Menghapus Anggota', data.error || 'Terjadi kesalahan', 'warning');
+        return false;
+      }
+    } catch (err) {
+      get().addNotification('Gagal Menghapus Anggota', 'Koneksi ke server terputus.', 'warning');
+      return false;
+    }
+  },
+
+  loadDashboardStats: async () => {
+    const { token } = get();
+    if (!token) return;
+
+    try {
+      const res = await fetch('/api/users/dashboard-stats', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        set({ dashboardStats: data });
+      }
+    } catch (err) {
+      console.error('Failed to load dashboard stats:', err);
     }
   }
 }));

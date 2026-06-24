@@ -42,8 +42,8 @@ export default function Login() {
           <h1 className="text-3xl font-light tracking-tighter text-white" style={{ fontFamily: 'Georgia, serif' }}>
             Masuk ke <span className="italic">Flowak</span>
           </h1>
-          <p className="text-[10px] text-[#C5A267] font-mono tracking-widest uppercase mt-1">
-            Traceability Spine Portal
+          <p className="text-[9px] text-[#C5A267] font-mono tracking-widest uppercase mt-1.5 select-all hover:underline" title="Salin URL halaman">
+            {window.location.origin}/login/
           </p>
         </div>
 

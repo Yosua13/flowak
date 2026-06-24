@@ -27,6 +27,43 @@ export default function AppShell() {
     initializeStore();
   }, [initializeStore]);
 
+  useEffect(() => {
+    let path = '/';
+    if (screen === 'login') {
+      path = '/login/';
+    } else if (screen === 'register') {
+      path = '/register/';
+    } else if (screen === 'dashboard') {
+      path = '/dashboard/';
+    } else if (screen === 'workspace') {
+      switch (view) {
+        case 'canvas':
+          path = '/kanvas/';
+          break;
+        case 'status':
+          path = '/status/';
+          break;
+        case 'doc':
+          path = '/spesifikasi/';
+          break;
+        case 'calendar':
+          path = '/jadwal/';
+          break;
+        case 'analytics':
+          path = '/analitik/';
+          break;
+        case 'kanban':
+          path = '/kanban/';
+          break;
+        case 'team':
+          path = '/tim/';
+          break;
+      }
+    }
+    const newUrl = `${window.location.origin}${path}`;
+    window.history.pushState({ screen, view }, '', newUrl);
+  }, [screen, view]);
+
   // Routing based on screen state
   if (screen === 'login') {
     return <Login />;

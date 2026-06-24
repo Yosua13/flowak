@@ -11,7 +11,8 @@ export default function ProjectHub() {
     createProject,
     deleteProject,
     selectProject,
-    loadProjects
+    loadProjects,
+    dashboardStats
   } = useStore();
 
   const [isAdding, setIsAdding] = useState(false);
@@ -59,7 +60,9 @@ export default function ProjectHub() {
           <div className="text-left">
             <div className="flex items-center space-x-2.5 mb-1.5">
               <div className="w-2.5 h-2.5 rounded-full bg-[#C5A267] shadow-[0_0_8px_#C5A267] animate-pulse"></div>
-              <span className="text-[10px] text-[#C5A267] font-mono tracking-widest uppercase font-bold">Flowak Workspace Manager</span>
+              <span className="text-[10px] text-[#C5A267] font-mono tracking-widest uppercase font-bold select-all hover:underline" title="Salin URL halaman">
+                {window.location.origin}/dashboard/
+              </span>
             </div>
             <h1 className="text-3xl font-light text-white tracking-tight" style={{ fontFamily: 'Georgia, serif' }}>
               Selamat datang kembali, <span className="italic">{currentUser?.name || 'Kontributor'}</span>
@@ -68,13 +71,15 @@ export default function ProjectHub() {
           </div>
 
           <div className="flex items-center space-x-3">
-            <button
-              onClick={() => setIsAdding(true)}
-              className="flex items-center space-x-1.5 px-4 py-2.5 bg-[#C5A267] hover:bg-[#B38F52] text-black text-xs font-bold uppercase tracking-wider rounded-xl shadow cursor-pointer transition"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Project Baru</span>
-            </button>
+            {currentUser?.role === 'pm' && (
+              <button
+                onClick={() => setIsAdding(true)}
+                className="flex items-center space-x-1.5 px-4 py-2.5 bg-[#C5A267] hover:bg-[#B38F52] text-black text-xs font-bold uppercase tracking-wider rounded-xl shadow cursor-pointer transition"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Project Baru</span>
+              </button>
+            )}
             <button
               onClick={logoutUser}
               className="flex items-center space-x-1.5 px-4 py-2.5 bg-white/5 hover:bg-red-950/20 border border-white/10 hover:border-red-900/40 text-gray-300 hover:text-red-400 text-xs font-bold uppercase tracking-wider rounded-xl cursor-pointer transition"
@@ -96,11 +101,10 @@ export default function ProjectHub() {
             </div>
           </div>
           <div className="p-4 bg-[#111113] border border-white/5 rounded-2xl text-left">
-            <span className="text-[9px] uppercase tracking-wider text-gray-500 font-mono font-bold block mb-1">Status Sinkronisasi</span>
+            <span className="text-[9px] uppercase tracking-wider text-gray-500 font-mono font-bold block mb-1">Tingkat Penyelesaian</span>
             <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-emerald-400 flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                Tersinkron
+              <span className="text-2xl font-bold text-emerald-400">
+                {dashboardStats ? `${dashboardStats.completionRate}%` : '0%'}
               </span>
               <Activity className="w-5 h-5 text-emerald-500" />
             </div>
@@ -115,9 +119,11 @@ export default function ProjectHub() {
             </div>
           </div>
           <div className="p-4 bg-[#111113] border border-white/5 rounded-2xl text-left">
-            <span className="text-[9px] uppercase tracking-wider text-gray-500 font-mono font-bold block mb-1">Skor Kesehatan Organisasi</span>
+            <span className="text-[9px] uppercase tracking-wider text-gray-500 font-mono font-bold block mb-1">Tugas Saya</span>
             <div className="flex items-center justify-between">
-              <span className="text-2xl font-bold text-white">85 <span className="text-[10px] text-gray-500 font-normal">/100</span></span>
+              <span className="text-2xl font-bold text-white">
+                {dashboardStats ? dashboardStats.myTasksCount : 0} <span className="text-[10px] text-gray-500 font-normal">tugas aktif</span>
+              </span>
               <Heart className="w-5 h-5 text-rose-400" />
             </div>
           </div>
@@ -220,13 +226,15 @@ export default function ProjectHub() {
                       <div className="w-8 h-8 rounded-lg bg-[#C5A267]/10 flex items-center justify-center text-[#C5A267]">
                         <Folder className="w-4.5 h-4.5" />
                       </div>
-                      <button
-                        onClick={(e) => handleDelete(project.id, project.name, e)}
-                        className="opacity-0 group-hover:opacity-100 p-1.5 rounded hover:bg-white/5 text-gray-500 hover:text-red-400 transition cursor-pointer"
-                        title="Hapus Proyek"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {currentUser?.id === project.owner_id && (
+                        <button
+                          onClick={(e) => handleDelete(project.id, project.name, e)}
+                          className="opacity-0 group-hover:opacity-100 p-1.5 rounded hover:bg-white/5 text-gray-500 hover:text-red-400 transition cursor-pointer"
+                          title="Hapus Proyek"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
 
                     <h3 className="text-md font-semibold text-white mt-4 group-hover:text-[#C5A267] transition-colors line-clamp-1">

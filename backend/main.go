@@ -55,6 +55,11 @@ func main() {
 	protectedMux.HandleFunc("GET /api/projects/{id}", handlers.ProjectDetailHandler)
 	protectedMux.HandleFunc("DELETE /api/projects/{id}", handlers.ProjectDetailHandler)
 
+	// Project Members
+	protectedMux.HandleFunc("GET /api/projects/{id}/members", handlers.ProjectMembersHandler)
+	protectedMux.HandleFunc("POST /api/projects/{id}/members", handlers.ProjectMembersHandler)
+	protectedMux.HandleFunc("DELETE /api/projects/{id}/members/{userId}", handlers.ProjectMemberDeleteHandler)
+
 	// Module CRUD
 	protectedMux.HandleFunc("GET /api/projects/{id}/modules", handlers.ProjectModulesHandler)
 	protectedMux.HandleFunc("POST /api/projects/{id}/modules", handlers.ProjectModulesHandler)
@@ -71,6 +76,7 @@ func main() {
 	protectedMux.HandleFunc("GET /api/users", handlers.UsersHandler)
 	protectedMux.HandleFunc("POST /api/users", handlers.UsersHandler)
 	protectedMux.HandleFunc("DELETE /api/users/{id}", handlers.UserDetailHandler)
+	protectedMux.HandleFunc("GET /api/users/dashboard-stats", handlers.UserDashboardStatsHandler)
 
 	// Register protected endpoints with JWT middleware
 	mux.Handle("/api/projects", middleware.AuthMiddleware(protectedMux))

@@ -67,7 +67,10 @@ func runMigrations() {
 	runMigrationFromFile(DB, "01_init_schema.sql")
 	
 	// Execute seed data migration
-	runMigrationFromFile(DB, "02_seed_data.sql")
+	// runMigrationFromFile(DB, "02_seed_data.sql")
+
+	// Execute project sharing migration
+	runMigrationFromFile(DB, "03_project_sharing.sql")
 
 	log.Println("Migrations executed successfully.")
 }

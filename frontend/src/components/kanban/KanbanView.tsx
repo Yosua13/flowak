@@ -5,8 +5,8 @@
 
 import React, { useState } from 'react';
 import { useStore } from '../../store/useStore';
-import { Node, RoleKey, Status } from '../../domain/types';
-import { Kanban, Sparkles, Filter, ChevronRight, User, Cpu, ArrowRightLeft, Check, CheckCircle2 } from 'lucide-react';
+import { RoleKey, Status } from '../../domain/types';
+import { Kanban, Filter, User } from 'lucide-react';
 
 interface KanbanTask {
   nodeId: string;
@@ -18,10 +18,11 @@ interface KanbanTask {
 }
 
 export default function KanbanView() {
-  const { modules, activeId, updateRole, teamMembers } = useStore();
+  const { modules, activeId, updateRole } = useStore();
   const activeModule = modules.find((m) => m.id === activeId);
 
   const [roleFilter, setRoleFilter] = useState<string>('all');
+  const [draggedOverCol, setDraggedOverCol] = useState<Status | null>(null);
 
   if (!activeModule) {
     return (
@@ -66,14 +67,6 @@ export default function KanbanView() {
     updateRole(nodeId, roleKey, { status: nextStatus });
   };
 
-  const getRoleLabel = (r: RoleKey) => {
-    switch (r) {
-      case 'uiux': return 'UI/UX Design';
-      case 'frontend': return 'Frontend FE';
-      case 'backend': return 'Backend BE';
-    }
-  };
-
   const getRoleBadge = (r: RoleKey) => {
     switch (r) {
       case 'uiux': return 'bg-pink-500/10 text-pink-400 border-pink-500/20';
@@ -93,7 +86,7 @@ export default function KanbanView() {
             Papan Kanban Transparansi Tugas
           </h2>
           <p className="text-xs text-gray-400 mt-1">
-            Pantau dan gerakkan status pengerjaan spesifikasi UI/UX, Frontend, dan Backend per langkah dari alur kerja secara kolaboratif.
+            Gunakan gestur seret-dan-lepas (Drag & Drop) kartu tugas untuk merubah status secara interaktif.
           </p>
         </div>
 
@@ -118,10 +111,30 @@ export default function KanbanView() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 items-start">
         {columns.map((col) => {
           const colTasks = filteredTasks.filter((t) => t.status === col.id);
+          const isDraggedOver = draggedOverCol === col.id;
+
           return (
             <div
               key={col.id}
-              className={`rounded-2xl border p-4 flex flex-col min-h-[500px] h-full ${col.color} ${col.border}`}
+              onDragOver={(e) => e.preventDefault()}
+              onDragEnter={() => setDraggedOverCol(col.id)}
+              onDragLeave={() => setDraggedOverCol(null)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDraggedOverCol(null);
+                try {
+                  const dataStr = e.dataTransfer.getData("text/plain");
+                  if (dataStr) {
+                    const { nodeId, roleKey } = JSON.parse(dataStr);
+                    handleMoveStatus(nodeId, roleKey, col.id);
+                  }
+                } catch (err) {
+                  console.error("Drop error:", err);
+                }
+              }}
+              className={`rounded-2xl border p-4 flex flex-col min-h-[520px] transition-all duration-150 ${col.color} ${col.border} ${
+                isDraggedOver ? 'border-[#C5A267]/60 bg-[#C5A267]/5 shadow-[0_0_15px_rgba(197,162,103,0.15)] scale-[1.01]' : ''
+              }`}
             >
               {/* Column Header */}
               <div className="flex items-center justify-between border-b border-white/5 pb-2.5 mb-4">
@@ -133,28 +146,33 @@ export default function KanbanView() {
 
               {/* Column Cards */}
               <div className="flex-1 flex flex-col space-y-3.5 overflow-y-auto max-h-[700px] scrollbar-none pb-4">
-                {colTasks.map((task, idx) => (
+                {colTasks.map((task) => (
                   <div
                     key={`${task.nodeId}_${task.roleKey}`}
-                    className="p-4 bg-[#131315]/95 border border-white/5 rounded-2xl shadow-xl hover:border-white/15 hover:bg-[#131315]/100 transition duration-150 flex flex-col space-y-3 pb-3"
+                    draggable="true"
+                    onDragStart={(e) => {
+                      e.dataTransfer.effectAllowed = "move";
+                      e.dataTransfer.setData("text/plain", JSON.stringify({ nodeId: task.nodeId, roleKey: task.roleKey }));
+                    }}
+                    className="p-4 bg-[#131315]/95 border border-white/5 rounded-2xl shadow-xl hover:border-[#C5A267]/30 hover:bg-[#131315]/100 cursor-grab active:cursor-grabbing hover:scale-[1.01] transition-all duration-150 flex flex-col space-y-3 pb-3 select-none"
                   >
                     {/* Node and Role headers */}
-                    <div className="flex items-start justify-between gap-1">
+                    <div className="flex items-start justify-between gap-1 pointer-events-none">
                       <span className="text-xs font-bold text-white tracking-tight line-clamp-2">{task.nodeLabel}</span>
-                      <span className={`text-[9px] font-bold font-mono tracking-wider px-2 py-0.5 rounded border uppercase flex-shrink-0 ${getBadgeBadge(task.roleKey)}`}>
+                      <span className={`text-[9px] font-bold font-mono tracking-wider px-2 py-0.5 rounded border uppercase flex-shrink-0 ${getRoleBadge(task.roleKey)}`}>
                         {task.roleKey.toUpperCase()}
                       </span>
                     </div>
 
                     {/* Member Assignee name view */}
-                    <div className="flex items-center space-x-2 text-gray-400 text-[11px] font-sans">
+                    <div className="flex items-center space-x-2 text-gray-400 text-[11px] font-sans pointer-events-none">
                       <User className="w-3.5 h-3.5 text-gray-500" />
                       <span>{task.assignee}</span>
                     </div>
 
                     {/* Status Mover Quick Switcher */}
                     <div className="pt-2 border-t border-white/3 flex items-center justify-between">
-                      <span className="text-[9px] font-mono font-bold text-gray-550 uppercase tracking-widest">Kirim Ke:</span>
+                      <span className="text-[9px] font-mono font-bold text-gray-500 uppercase tracking-widest">Kirim Ke:</span>
                       <div className="flex items-center space-x-1">
                         {columns.map((c) => {
                           if (c.id === task.status) return null;
@@ -186,13 +204,4 @@ export default function KanbanView() {
       </div>
     </div>
   );
-}
-
-// Inline helper for bad nomenclature errors
-function getBadgeBadge(r: RoleKey) {
-  switch (r) {
-    case 'uiux': return 'bg-pink-500/10 text-pink-400 border-pink-500/20';
-    case 'frontend': return 'bg-sky-500/10 text-sky-400 border-sky-500/20';
-    case 'backend': return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
-  }
 }
