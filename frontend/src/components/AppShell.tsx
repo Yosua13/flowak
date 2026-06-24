@@ -110,10 +110,10 @@ export default function AppShell() {
 
       {/* Main lens area - middle zone */}
       <div className="flex-1 flex flex-col h-full overflow-hidden relative print:overflow-visible print:h-auto">
-        <div className="print:hidden">
+        <div className="print:hidden relative z-30">
           <Topbar />
         </div>
-        <div className="flex-1 h-full overflow-hidden flex flex-col relative print:overflow-visible print:h-auto">
+        <div className="flex-1 h-full overflow-hidden flex flex-col relative z-10 print:overflow-visible print:h-auto">
           {renderActiveLens()}
         </div>
       </div>
@@ -128,12 +128,19 @@ export default function AppShell() {
       {/* Global Notification Detail Modal */}
       <AnimatePresence>
         {selectedNotif && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setSelectedNotif(null)}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4"
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-[#131315] border border-white/10 w-full max-w-md rounded-2xl p-6 shadow-2xl space-y-4"
+              onClick={(e) => e.stopPropagation()}
+              className="bg-[#131315] border border-white/10 w-full max-w-md rounded-2xl p-6 shadow-2xl space-y-4 text-left"
             >
               <div className="flex items-center justify-between border-b border-white/5 pb-3">
                 <div className="flex items-center space-x-2">
@@ -161,7 +168,7 @@ export default function AppShell() {
                 </button>
               </div>
             </motion.div>
-          </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
