@@ -1,12 +1,12 @@
 package middleware
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"strings"
 
 	"backend/config"
+	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -25,17 +25,19 @@ type Claims struct {
 }
 
 // AuthMiddleware validates JWT tokens and sets user claims in context
-func AuthMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		authHeader := r.Header.Get("Authorization")
+func AuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
-			http.Error(w, `{"error": "Authorization header is required"}`, http.StatusUnauthorized)
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header is required"})
+			c.Abort()
 			return
 		}
 
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
-			http.Error(w, `{"error": "Authorization header must be Bearer {token}"}`, http.StatusUnauthorized)
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header must be Bearer {token}"})
+			c.Abort()
 			return
 		}
 
@@ -47,47 +49,58 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		})
 
 		if err != nil || !token.Valid {
-			http.Error(w, `{"error": "Invalid or expired token"}`, http.StatusUnauthorized)
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+			c.Abort()
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), UserContextKey, claims.UserID)
-		ctx = context.WithValue(ctx, RoleContextKey, claims.Role)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+		c.Set(string(UserContextKey), claims.UserID)
+		c.Set(string(RoleContextKey), claims.Role)
+		c.Next()
+	}
 }
 
 // RequireRole restricts access to specific roles
-func RequireRole(allowedRoles ...string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			userRole, ok := r.Context().Value(RoleContextKey).(string)
-			if !ok {
-				http.Error(w, `{"error": "Role not found in context"}`, http.StatusForbidden)
-				return
-			}
+func RequireRole(allowedRoles ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userRoleVal, exists := c.Get(string(RoleContextKey))
+		if !exists {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Role not found in context"})
+			c.Abort()
+			return
+		}
+		userRole, ok := userRoleVal.(string)
+		if !ok {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Role not found in context"})
+			c.Abort()
+			return
+		}
 
-			allowed := false
-			for _, role := range allowedRoles {
-				if userRole == role {
-					allowed = true
-					break
-				}
+		allowed := false
+		for _, role := range allowedRoles {
+			if userRole == role {
+				allowed = true
+				break
 			}
+		}
 
-			if !allowed {
-				http.Error(w, `{"error": "You do not have permission to perform this action"}`, http.StatusForbidden)
-				return
-			}
+		if !allowed {
+			c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to perform this action"})
+			c.Abort()
+			return
+		}
 
-			next.ServeHTTP(w, r)
-		})
+		c.Next()
 	}
 }
 
 // GetUserID helper retrieves user ID from request context
-func GetUserID(r *http.Request) (string, error) {
-	userID, ok := r.Context().Value(UserContextKey).(string)
+func GetUserID(c *gin.Context) (string, error) {
+	userIDVal, exists := c.Get(string(UserContextKey))
+	if !exists {
+		return "", errors.New("unauthorized")
+	}
+	userID, ok := userIDVal.(string)
 	if !ok || userID == "" {
 		return "", errors.New("unauthorized")
 	}
@@ -95,8 +108,12 @@ func GetUserID(r *http.Request) (string, error) {
 }
 
 // GetUserRole helper retrieves user role from request context
-func GetUserRole(r *http.Request) (string, error) {
-	role, ok := r.Context().Value(RoleContextKey).(string)
+func GetUserRole(c *gin.Context) (string, error) {
+	roleVal, exists := c.Get(string(RoleContextKey))
+	if !exists {
+		return "", errors.New("role not found")
+	}
+	role, ok := roleVal.(string)
 	if !ok || role == "" {
 		return "", errors.New("role not found")
 	}
