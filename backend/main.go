@@ -36,7 +36,7 @@ func main() {
 	log.Printf("Starting Flowak Backend on port %s...", config.ActiveConfig.Port)
 
 	// 2. Initialize database
-	db.InitDB("flowak.db")
+	db.InitDB()
 	defer db.DB.Close()
 
 	// 3. Setup router (Go 1.22+ custom pattern routing)
@@ -67,11 +67,18 @@ func main() {
 	protectedMux.HandleFunc("POST /api/ai/audit-flow", handlers.AiAuditFlowHandler)
 	protectedMux.HandleFunc("POST /api/ai/generate-code", handlers.AiGenerateCodeHandler)
 
+	// User / Contributor CRUD
+	protectedMux.HandleFunc("GET /api/users", handlers.UsersHandler)
+	protectedMux.HandleFunc("POST /api/users", handlers.UsersHandler)
+	protectedMux.HandleFunc("DELETE /api/users/{id}", handlers.UserDetailHandler)
+
 	// Register protected endpoints with JWT middleware
 	mux.Handle("/api/projects", middleware.AuthMiddleware(protectedMux))
 	mux.Handle("/api/projects/", middleware.AuthMiddleware(protectedMux))
 	mux.Handle("/api/modules/", middleware.AuthMiddleware(protectedMux))
 	mux.Handle("/api/ai/", middleware.AuthMiddleware(protectedMux))
+	mux.Handle("/api/users", middleware.AuthMiddleware(protectedMux))
+	mux.Handle("/api/users/", middleware.AuthMiddleware(protectedMux))
 
 	// Catch-all route to serve compiled static assets from the frontend/dist folder (Production)
 	distDir := "../frontend/dist"
