@@ -344,7 +344,10 @@ export default function Topbar() {
                     notifications.map((n) => (
                       <div
                         key={n.id}
-                        onClick={() => setSelectedNotif(n)}
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          setSelectedNotif(n);
+                        }}
                         className={`p-2.5 rounded-lg text-xs transition border text-left cursor-pointer hover:bg-white/10 ${
                           n.type === 'success'
                             ? 'bg-emerald-950/10 border-emerald-900/40 text-emerald-300'
