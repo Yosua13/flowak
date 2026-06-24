@@ -20,7 +20,7 @@ func InitDB() {
 	// 1. Connect to default 'postgres' database to ensure our 'flowak' DB exists
 	adminConnStr := fmt.Sprintf("postgres://%s:%s@%s:%s/postgres?sslmode=disable",
 		cfg.DBUser, cfg.DBPassword, cfg.DBHost, cfg.DBPort)
-	
+
 	adminDB, err := sql.Open("postgres", adminConnStr)
 	if err != nil {
 		log.Printf("Warning: Failed to connect to default postgres DB (will try direct connection): %v", err)
@@ -62,15 +62,18 @@ func InitDB() {
 
 func runMigrations() {
 	log.Println("Running database migrations from SQL files...")
-	
+
 	// Execute schema migration
 	runMigrationFromFile(DB, "01_init_schema.sql")
-	
+
 	// Execute seed data migration
 	// runMigrationFromFile(DB, "02_seed_data.sql")
 
 	// Execute project sharing migration
 	runMigrationFromFile(DB, "03_project_sharing.sql")
+
+	// Execute SaaS tenant and normalized workflow migration
+	runMigrationFromFile(DB, "04_saas_normalized_schema.sql")
 
 	log.Println("Migrations executed successfully.")
 }
@@ -87,7 +90,7 @@ func runMigrationFromFile(db *sql.DB, filename string) {
 	var content []byte
 	var err error
 	var foundPath string
-	
+
 	for _, p := range paths {
 		content, err = os.ReadFile(p)
 		if err == nil {
