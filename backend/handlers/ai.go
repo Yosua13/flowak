@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"backend/config"
+	"github.com/gin-gonic/gin"
 )
 
 // Gemini API REST payload structs
@@ -87,7 +88,6 @@ func CallGemini(systemInstruction, prompt string, schema any) (string, error) {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	// Set User-Agent to match typical builder requests
 	req.Header.Set("User-Agent", "aistudio-build")
 
 	client := &http.Client{Timeout: 30 * time.Second}
@@ -118,27 +118,19 @@ func CallGemini(systemInstruction, prompt string, schema any) (string, error) {
 	return geminiResp.Candidates[0].Content.Parts[0].Text, nil
 }
 
-// 1. Generate Flow Handler (POST /api/ai/generate-flow)
-func AiGenerateFlowHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		w.Write([]byte(`{"error": "Method not allowed"}`))
-		return
-	}
-
+// AiGenerateFlowHandler handles POST /api/ai/generate-flow
+func AiGenerateFlowHandler(c *gin.Context) {
 	var req struct {
 		Prompt string `json:"prompt"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Prompt == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error": "Permintaan prompt tidak boleh kosong"}`))
+	if err := c.ShouldBindJSON(&req); err != nil || req.Prompt == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Permintaan prompt tidak boleh kosong"})
 		return
 	}
 
 	// Fallback to offline demo flow if key is empty
 	if config.ActiveConfig.GeminiAPIKey == "" {
-		w.Write(getOfflineDemoFlow(req.Prompt))
+		c.Data(http.StatusOK, "application/json", getOfflineDemoFlow(req.Prompt))
 		return
 	}
 
@@ -247,8 +239,7 @@ Silakan buatkan struktur node proses bisnis dan edges sesuai dengan deskripsi te
 
 	resultText, err := CallGemini(systemInstruction, promptTemplate, schema)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -301,8 +292,7 @@ Silakan buatkan struktur node proses bisnis dan edges sesuai dengan deskripsi te
 	}
 
 	if err := json.Unmarshal([]byte(resultText), &rawFlow); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error": "Failed to parse Gemini output"}`))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse Gemini output"})
 		return
 	}
 
@@ -403,24 +393,17 @@ Silakan buatkan struktur node proses bisnis dan edges sesuai dengan deskripsi te
 		})
 	}
 
-	w.Write([]byte(fmt.Sprintf(`{
-		"status": "complete",
-		"name": %q,
-		"description": %q,
-		"nodes": %s,
-		"edges": %s
-	}`, rawFlow.Name, rawFlow.Description, toJSONString(respNodes), toJSONString(respEdges))))
+	c.JSON(http.StatusOK, gin.H{
+		"status":      "complete",
+		"name":        rawFlow.Name,
+		"description": rawFlow.Description,
+		"nodes":       respNodes,
+		"edges":       respEdges,
+	})
 }
 
-// 2. Generate AI Mock Payload (POST /api/ai/mock-payload)
-func AiMockPayloadHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		w.Write([]byte(`{"error": "Method not allowed"}`))
-		return
-	}
-
+// AiMockPayloadHandler handles POST /api/ai/mock-payload
+func AiMockPayloadHandler(c *gin.Context) {
 	var req struct {
 		Actor    string `json:"actor"`
 		Label    string `json:"label"`
@@ -428,18 +411,17 @@ func AiMockPayloadHandler(w http.ResponseWriter, r *http.Request) {
 		Process  string `json:"process"`
 		Method   string `json:"method"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error": "Invalid request body"}`))
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
 	// Fallback to offline mock response if key is empty
 	if config.ActiveConfig.GeminiAPIKey == "" {
-		w.Write([]byte(fmt.Sprintf(`{
-			"request": "{\n  \"deviceId\": \"MOCK_DEVICE_ID\",\n  \"channel\": \"Web\",\n  \"action\": %q\n}",
-			"response": "{\n  \"success\": true,\n  \"timestamp\": %q,\n  \"data\": {\n    \"step\": %q,\n    \"actor\": %q,\n    \"simulated\": true\n  }\n}"
-		}`, req.Label, time.Now().Format(time.RFC3339), req.Label, req.Actor)))
+		c.JSON(http.StatusOK, gin.H{
+			"request": fmt.Sprintf("{\n  \"deviceId\": \"MOCK_DEVICE_ID\",\n  \"channel\": \"Web\",\n  \"action\": %q\n}", req.Label),
+			"response": fmt.Sprintf("{\n  \"success\": true,\n  \"timestamp\": %q,\n  \"data\": {\n    \"step\": %q,\n    \"actor\": %q,\n    \"simulated\": true\n  }\n}", time.Now().Format(time.RFC3339), req.Label, req.Actor),
+		})
 		return
 	}
 
@@ -464,35 +446,26 @@ Keluarkan data dalam format skema JSON yang berisi dua properti string: 'request
 
 	resultText, err := CallGemini("", prompt, schema)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	w.Write([]byte(resultText))
+	c.Data(http.StatusOK, "application/json", []byte(resultText))
 }
 
-// 3. AI Spec Reviewer & Auditor (POST /api/ai/audit-flow)
-func AiAuditFlowHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		w.Write([]byte(`{"error": "Method not allowed"}`))
-		return
-	}
-
+// AiAuditFlowHandler handles POST /api/ai/audit-flow
+func AiAuditFlowHandler(c *gin.Context) {
 	var req struct {
 		Module any `json:"module"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Module == nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error": "Modul harus disertakan."}`))
+	if err := c.ShouldBindJSON(&req); err != nil || req.Module == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Modul harus disertakan."})
 		return
 	}
 
 	// Fallback to offline mock response if key is empty
 	if config.ActiveConfig.GeminiAPIKey == "" {
-		w.Write([]byte(`{
+		c.Data(http.StatusOK, "application/json", []byte(`{
 			"score": 85,
 			"summary": "Audit offline demo dilakukan. Struktur modul valid namun integrasi AI sesungguhnya tidak aktif karena API KEY kosong.",
 			"issues": [
@@ -546,23 +519,15 @@ Berikan keluaran hasil audit Anda dalam format skema JSON terstruktur berisi:
 
 	resultText, err := CallGemini("", prompt, schema)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	w.Write([]byte(resultText))
+	c.Data(http.StatusOK, "application/json", []byte(resultText))
 }
 
-// 4. AI Boilerplate Code Generator (POST /api/ai/generate-code)
-func AiGenerateCodeHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		w.Write([]byte(`{"error": "Method not allowed"}`))
-		return
-	}
-
+// AiGenerateCodeHandler handles POST /api/ai/generate-code
+func AiGenerateCodeHandler(c *gin.Context) {
 	var req struct {
 		Type      string `json:"type"`
 		NodeLabel string `json:"nodeLabel"`
@@ -570,9 +535,8 @@ func AiGenerateCodeHandler(w http.ResponseWriter, r *http.Request) {
 		Detail    any    `json:"detail"`
 		Framework string `json:"framework"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error": "Invalid request body"}`))
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
@@ -612,15 +576,15 @@ export async function handle%s(req: Request, res: Response) {
 }`, req.NodeLabel, strings.ReplaceAll(req.NodeLabel, " ", ""), req.NodeLabel)
 		}
 
-		w.Write([]byte(fmt.Sprintf(`{
-			"code": %q,
-			"language": %q
-		}`, code, func() string {
-			if req.Type == "frontend" {
-				return "tsx"
-			}
-			return "typescript"
-		}())))
+		c.JSON(http.StatusOK, gin.H{
+			"code": code,
+			"language": func() string {
+				if req.Type == "frontend" {
+					return "tsx"
+				}
+				return "typescript"
+			}(),
+		})
 		return
 	}
 
@@ -647,21 +611,17 @@ Sertakan parsing, handling validasi sederhana, dan try-catch error response bloc
 			req.NodeLabel, req.NodeType, string(detailJSON))
 	}
 
-	// For general text output generation without schema constraints, we don't pass schema object
 	resultText, err := CallGemini(systemInstruction, prompt, nil)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, err.Error())))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	// Parse text to extract code from markdown block if returned
 	code := resultText
-	// Strip markdown blocks if returned
 	if strings.Contains(code, "```") {
 		parts := strings.Split(code, "```")
 		for _, part := range parts {
-			// Find the block containing tsx/typescript/javascript code
 			if strings.HasPrefix(part, "tsx\n") || strings.HasPrefix(part, "typescript\n") || strings.HasPrefix(part, "javascript\n") {
 				lines := strings.Split(part, "\n")
 				code = strings.Join(lines[1:], "\n")
@@ -670,15 +630,15 @@ Sertakan parsing, handling validasi sederhana, dan try-catch error response bloc
 		}
 	}
 
-	w.Write([]byte(fmt.Sprintf(`{
-		"code": %q,
-		"language": %q
-	}`, code, func() string {
-		if req.Type == "frontend" {
-			return "tsx"
-		}
-		return "typescript"
-	}())))
+	c.JSON(http.StatusOK, gin.H{
+		"code": code,
+		"language": func() string {
+			if req.Type == "frontend" {
+				return "tsx"
+			}
+			return "typescript"
+		}(),
+	})
 }
 
 // Helpers
