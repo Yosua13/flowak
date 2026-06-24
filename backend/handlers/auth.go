@@ -90,7 +90,7 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 2. Check if email already exists
 	var exists bool
-	err := db.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE email = ?)", email).Scan(&exists)
+	err := db.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)", email).Scan(&exists)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(`{"error": "Database error checking user"}`))
@@ -112,7 +112,7 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 4. Save to Database
 	userID := "usr_" + GenerateUUID()
-	_, err = db.DB.Exec("INSERT INTO users (id, name, email, password_hash, role) VALUES (?, ?, ?, ?, ?)",
+	_, err = db.DB.Exec("INSERT INTO users (id, name, email, password_hash, role) VALUES ($1, $2, $3, $4, $5)",
 		userID, name, email, string(hashedPassword), role)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -152,7 +152,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	// 1. Find user in database
 	var user models.User
 	var passwordHash string
-	err := db.DB.QueryRow("SELECT id, name, email, password_hash, role, created_at FROM users WHERE email = ?", email).
+	err := db.DB.QueryRow("SELECT id, name, email, password_hash, role, created_at FROM users WHERE email = $1", email).
 		Scan(&user.ID, &user.Name, &user.Email, &passwordHash, &user.Role, &user.CreatedAt)
 
 	if err != nil {

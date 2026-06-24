@@ -25,7 +25,7 @@ func ProjectsHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		// Retrieve all projects owned by the user
-		rows, err := db.DB.Query("SELECT id, name, description, owner_id, created_at FROM projects WHERE owner_id = ? ORDER BY created_at DESC", userID)
+		rows, err := db.DB.Query("SELECT id, name, description, owner_id, created_at FROM projects WHERE owner_id = $1 ORDER BY created_at DESC", userID)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(`{"error": "Database query error"}`))
@@ -75,7 +75,7 @@ func ProjectsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		defer tx.Rollback()
 
-		_, err = tx.Exec("INSERT INTO projects (id, name, description, owner_id) VALUES (?, ?, ?, ?)",
+		_, err = tx.Exec("INSERT INTO projects (id, name, description, owner_id) VALUES ($1, $2, $3, $4)",
 			projectID, name, description, userID)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -87,7 +87,7 @@ func ProjectsHandler(w http.ResponseWriter, r *http.Request) {
 		moduleID := "mod_" + GenerateUUID()
 		defaultNodesJSON := "[]"
 		defaultEdgesJSON := "[]"
-		_, err = tx.Exec("INSERT INTO modules (id, project_id, name, description, nodes, edges, schema_version) VALUES (?, ?, ?, ?, ?, ?, 1)",
+		_, err = tx.Exec("INSERT INTO modules (id, project_id, name, description, nodes, edges, schema_version) VALUES ($1, $2, $3, $4, $5, $6, 1)",
 			moduleID, projectID, "Alur Kerja Utama", "Modul alur kerja default untuk proyek baru.", defaultNodesJSON, defaultEdgesJSON)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -130,7 +130,7 @@ func ProjectDetailHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 1. Authorization check: Verify user owns the project
 	var ownerID string
-	err = db.DB.QueryRow("SELECT owner_id FROM projects WHERE id = ?", projectID).Scan(&ownerID)
+	err = db.DB.QueryRow("SELECT owner_id FROM projects WHERE id = $1", projectID).Scan(&ownerID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			w.WriteHeader(http.StatusNotFound)
@@ -152,7 +152,7 @@ func ProjectDetailHandler(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		// Retrieve project with its modules
 		var p models.Project
-		err = db.DB.QueryRow("SELECT id, name, description, owner_id, created_at FROM projects WHERE id = ?", projectID).
+		err = db.DB.QueryRow("SELECT id, name, description, owner_id, created_at FROM projects WHERE id = $1", projectID).
 			Scan(&p.ID, &p.Name, &p.Description, &p.OwnerID, &p.CreatedAt)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -161,7 +161,7 @@ func ProjectDetailHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Get project modules
-		rows, err := db.DB.Query("SELECT id, project_id, name, description, nodes, edges, schema_version, created_at FROM modules WHERE project_id = ?", projectID)
+		rows, err := db.DB.Query("SELECT id, project_id, name, description, nodes, edges, schema_version, created_at FROM modules WHERE project_id = $1", projectID)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(`{"error": "Database query error for modules"}`))
@@ -193,7 +193,7 @@ func ProjectDetailHandler(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodDelete:
 		// Delete the project (cascades to modules automatically due to foreign key)
-		_, err = db.DB.Exec("DELETE FROM projects WHERE id = ?", projectID)
+		_, err = db.DB.Exec("DELETE FROM projects WHERE id = $1", projectID)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(`{"error": "Failed to delete project"}`))
@@ -221,7 +221,7 @@ func ProjectModulesHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 1. Authorization check
 	var ownerID string
-	err = db.DB.QueryRow("SELECT owner_id FROM projects WHERE id = ?", projectID).Scan(&ownerID)
+	err = db.DB.QueryRow("SELECT owner_id FROM projects WHERE id = $1", projectID).Scan(&ownerID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			w.WriteHeader(http.StatusNotFound)
@@ -241,7 +241,7 @@ func ProjectModulesHandler(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		rows, err := db.DB.Query("SELECT id, project_id, name, description, nodes, edges, schema_version, created_at FROM modules WHERE project_id = ? ORDER BY created_at ASC", projectID)
+		rows, err := db.DB.Query("SELECT id, project_id, name, description, nodes, edges, schema_version, created_at FROM modules WHERE project_id = $1 ORDER BY created_at ASC", projectID)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(`{"error": "Database query error for modules"}`))
@@ -294,7 +294,7 @@ func ProjectModulesHandler(w http.ResponseWriter, r *http.Request) {
 			edgesJSON = string(eb)
 		}
 
-		_, err = db.DB.Exec("INSERT INTO modules (id, project_id, name, description, nodes, edges, schema_version) VALUES (?, ?, ?, ?, ?, ?, 1)",
+		_, err = db.DB.Exec("INSERT INTO modules (id, project_id, name, description, nodes, edges, schema_version) VALUES ($1, $2, $3, $4, $5, $6, 1)",
 			moduleID, projectID, name, description, nodesJSON, edgesJSON)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -326,7 +326,7 @@ func ModuleDetailHandler(w http.ResponseWriter, r *http.Request) {
 	// 1. Authorization: verify this module belongs to a project owned by the user
 	var ownerID string
 	var projectID string
-	err = db.DB.QueryRow("SELECT p.owner_id, m.project_id FROM modules m JOIN projects p ON m.project_id = p.id WHERE m.id = ?", moduleID).
+	err = db.DB.QueryRow("SELECT p.owner_id, m.project_id FROM modules m JOIN projects p ON m.project_id = p.id WHERE m.id = $1", moduleID).
 		Scan(&ownerID, &projectID)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -356,7 +356,7 @@ func ModuleDetailHandler(w http.ResponseWriter, r *http.Request) {
 
 		// Update fields if provided
 		if req.Name != "" {
-			_, err = db.DB.Exec("UPDATE modules SET name = ? WHERE id = ?", req.Name, moduleID)
+			_, err = db.DB.Exec("UPDATE modules SET name = $1 WHERE id = $2", req.Name, moduleID)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Write([]byte(`{"error": "Failed to update module name"}`))
@@ -365,7 +365,7 @@ func ModuleDetailHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if req.Description != "" {
-			_, err = db.DB.Exec("UPDATE modules SET description = ? WHERE id = ?", req.Description, moduleID)
+			_, err = db.DB.Exec("UPDATE modules SET description = $1 WHERE id = $2", req.Description, moduleID)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Write([]byte(`{"error": "Failed to update module description"}`))
@@ -380,7 +380,7 @@ func ModuleDetailHandler(w http.ResponseWriter, r *http.Request) {
 				w.Write([]byte(`{"error": "Invalid nodes format"}`))
 				return
 			}
-			_, err = db.DB.Exec("UPDATE modules SET nodes = ? WHERE id = ?", string(nodesBytes), moduleID)
+			_, err = db.DB.Exec("UPDATE modules SET nodes = $1 WHERE id = $2", string(nodesBytes), moduleID)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Write([]byte(`{"error": "Failed to update nodes data"}`))
@@ -395,7 +395,7 @@ func ModuleDetailHandler(w http.ResponseWriter, r *http.Request) {
 				w.Write([]byte(`{"error": "Invalid edges format"}`))
 				return
 			}
-			_, err = db.DB.Exec("UPDATE modules SET edges = ? WHERE id = ?", string(edgesBytes), moduleID)
+			_, err = db.DB.Exec("UPDATE modules SET edges = $1 WHERE id = $2", string(edgesBytes), moduleID)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Write([]byte(`{"error": "Failed to update edges data"}`))
@@ -406,7 +406,7 @@ func ModuleDetailHandler(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"success": true, "message": "Module updated successfully"}`))
 
 	case http.MethodDelete:
-		_, err = db.DB.Exec("DELETE FROM modules WHERE id = ?", moduleID)
+		_, err = db.DB.Exec("DELETE FROM modules WHERE id = $1", moduleID)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(`{"error": "Failed to delete module"}`))
