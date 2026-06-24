@@ -20,6 +20,7 @@ export default function Sidebar() {
     toggleDarkMode,
     importModule,
     addNotification,
+    selectProject,
   } = useStore();
 
   const [isAdding, setIsAdding] = useState(false);
@@ -99,6 +100,16 @@ export default function Sidebar() {
 
       {/* Module Navigation */}
       <div className="flex-1 overflow-y-auto p-3 space-y-4 scrollbar-thin">
+        {/* Kembali ke Dashboard */}
+        {!sidebarCollapsed && (
+          <button
+            onClick={() => selectProject(null)}
+            className="w-full flex items-center space-x-2 px-3 py-2 rounded-lg text-xs font-semibold text-gray-400 hover:text-white hover:bg-white/5 cursor-pointer transition mb-2"
+          >
+            <ChevronLeft className="w-4 h-4 text-[#C5A267]" />
+            <span>Kembali ke Galeri</span>
+          </button>
+        )}
         <div>
           <div className="flex items-center justify-between px-2 mb-2">
             {!sidebarCollapsed && <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Daftar Modul</span>}

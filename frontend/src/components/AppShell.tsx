@@ -15,26 +15,32 @@ import AnalyticsView from './analytics/AnalyticsView';
 import KanbanView from './kanban/KanbanView';
 import TeamView from './team/TeamView';
 import Inspector from './inspector/Inspector';
+import Login from './auth/Login';
+import Register from './auth/Register';
+import ProjectHub from './dashboard/ProjectHub';
 import { Loader2 } from 'lucide-react';
 
 export default function AppShell() {
-  const { view, selectedNodeId, initializeStore, modules } = useStore();
+  const { screen, view, selectedNodeId, initializeStore } = useStore();
 
   useEffect(() => {
     initializeStore();
   }, [initializeStore]);
 
-  // If initial store is empty and still initializing
-  if (modules.length === 0) {
-    return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#0A0A0B] text-white">
-        <Loader2 className="w-8 h-8 text-[#C5A267] animate-spin mb-4" />
-        <p className="text-xs font-mono text-gray-400">Menyiapkan Workspace Flowak...</p>
-      </div>
-    );
+  // Routing based on screen state
+  if (screen === 'login') {
+    return <Login />;
   }
 
-  // Selective rendering of active lens of model
+  if (screen === 'register') {
+    return <Register />;
+  }
+
+  if (screen === 'dashboard') {
+    return <ProjectHub />;
+  }
+
+  // Selective rendering of active lens in Workspace
   const renderActiveLens = () => {
     switch (view) {
       case 'canvas':
