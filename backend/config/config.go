@@ -10,6 +10,11 @@ type Config struct {
 	Port         string
 	JWTSecret    string
 	GeminiAPIKey string
+	DBHost       string
+	DBPort       string
+	DBUser       string
+	DBPassword   string
+	DBName       string
 }
 
 var ActiveConfig Config
@@ -58,9 +63,36 @@ func InitConfig() {
 
 	geminiAPIKey := os.Getenv("GEMINI_API_KEY")
 
+	// PostgreSQL Env Vars with default fallbacks
+	dbHost := os.Getenv("DB_HOST")
+	if dbHost == "" {
+		dbHost = "localhost"
+	}
+	dbPort := os.Getenv("DB_PORT")
+	if dbPort == "" {
+		dbPort = "5432"
+	}
+	dbUser := os.Getenv("DB_USER")
+	if dbUser == "" {
+		dbUser = "postgres"
+	}
+	dbPassword := os.Getenv("DB_PASSWORD")
+	if dbPassword == "" {
+		dbPassword = "postgres"
+	}
+	dbName := os.Getenv("DB_NAME")
+	if dbName == "" {
+		dbName = "flowak"
+	}
+
 	ActiveConfig = Config{
 		Port:         port,
 		JWTSecret:    jwtSecret,
 		GeminiAPIKey: geminiAPIKey,
+		DBHost:       dbHost,
+		DBPort:       dbPort,
+		DBUser:       dbUser,
+		DBPassword:   dbPassword,
+		DBName:       dbName,
 	}
 }
