@@ -7,6 +7,9 @@ import { create } from 'zustand';
 import { Module, Node, Edge, ID, NodeType, RoleKey, BusinessFacet, Status } from '../domain/types';
 import { canAddEdge, addEdge as domainAddEdge, uid } from '../domain/invariants';
 import { TeamMember } from '../config/seedData';
+import { apiClient } from '../services/apiClient';
+import { saveGraphOptimistically, SaveStatus } from '../services/graphMutation';
+import { persistenceAdapter } from '../infra/persistence';
 
 export type AppView = 'canvas' | 'status' | 'doc' | 'calendar' | 'analytics' | 'kanban' | 'team';
 export type AppScreen = 'login' | 'register' | 'dashboard' | 'workspace';
@@ -56,6 +59,8 @@ interface AppStore {
   teamMembers: TeamMember[];
   projectMembers: TeamMember[];
   dashboardStats: { myTasksCount: number; completionRate: number } | null;
+  saveStatus: SaveStatus;
+  setSaveStatus: (status: SaveStatus) => void;
 
   // Actions - UI/Screen routing
   setScreen: (screen: AppScreen) => void;
@@ -119,7 +124,8 @@ interface AppStore {
   loadDashboardStats: () => Promise<void>;
 }
 
-let saveTimeout: any = null;
+let saveTimeout: ReturnType<typeof setTimeout> | null = null;
+let graphRequest: AbortController | null = null;
 
 const debouncedSave = (get: any) => {
   const { activeId, modules, token } = get();
@@ -129,21 +135,14 @@ const debouncedSave = (get: any) => {
 
   if (saveTimeout) clearTimeout(saveTimeout);
   saveTimeout = setTimeout(async () => {
-    try {
-      await fetch(`/api/modules/${activeId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          nodes: activeMod.nodes,
-          edges: activeMod.edges
-        })
-      });
-    } catch (err) {
-      console.error('Failed to sync canvas updates to server:', err);
-    }
+    graphRequest?.abort();
+    graphRequest = apiClient.abortable();
+    get().setSaveStatus?.('saving');
+    const previous = modules.find((module: Module) => module.id === activeId);
+    const status = await saveGraphOptimistically(activeMod, get().activeProjectId, () => {
+      if (previous) useStore.setState({ modules: get().modules.map((module: Module) => module.id === activeId ? previous : module) });
+    }, graphRequest.signal);
+    useStore.setState({ saveStatus: status });
   }, 600);
 };
 
@@ -168,6 +167,8 @@ export const useStore = create<AppStore>((set, get) => ({
   teamMembers: [],
   projectMembers: [],
   dashboardStats: null,
+  saveStatus: 'idle',
+  setSaveStatus: (saveStatus) => set({ saveStatus }),
   selectedNotif: null,
   notifications: [
     {
@@ -186,24 +187,21 @@ export const useStore = create<AppStore>((set, get) => ({
 
   initializeStore: async () => {
     document.documentElement.classList.add('dark');
-    const storedToken = localStorage.getItem('flowak_token');
-    const storedUser = localStorage.getItem('flowak_user');
-
-    if (storedToken && storedUser) {
-      try {
-        const parsedUser = JSON.parse(storedUser);
+    const preferences = persistenceAdapter.loadPreferences();
+    if (!preferences.darkMode) document.documentElement.classList.remove('dark');
+    set({ darkMode: preferences.darkMode });
+    try {
+        const session = await apiClient.post<{ token: string; user: AppStore['currentUser'] }>('/auth/refresh');
+        apiClient.setToken(session.token);
         set({
-          token: storedToken,
-          currentUser: parsedUser,
+          token: session.token,
+          currentUser: session.user,
           isAuthenticated: true,
           screen: 'dashboard'
         });
         await get().loadProjects();
         await get().loadTeamMembers();
-      } catch (err) {
-        get().logoutUser();
-      }
-    } else {
+    } catch {
       set({ screen: 'login' });
     }
   },
@@ -216,6 +214,7 @@ export const useStore = create<AppStore>((set, get) => ({
       } else {
         document.documentElement.classList.remove('dark');
       }
+      persistenceAdapter.savePreferences({ darkMode: mode });
       return { darkMode: mode };
     });
   },
@@ -235,8 +234,7 @@ export const useStore = create<AppStore>((set, get) => ({
         return false;
       }
 
-      localStorage.setItem('flowak_token', data.token);
-      localStorage.setItem('flowak_user', JSON.stringify(data.user));
+      apiClient.setToken(data.token);
 
       set({
         token: data.token,
@@ -279,8 +277,8 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   logoutUser: () => {
-    localStorage.removeItem('flowak_token');
-    localStorage.removeItem('flowak_user');
+    void apiClient.post('/auth/logout').catch(() => undefined);
+    apiClient.setToken(null);
 
     set({
       token: null,
@@ -370,6 +368,7 @@ export const useStore = create<AppStore>((set, get) => ({
     if (!token) return;
 
     if (!projectId) {
+      graphRequest?.abort();
       set({
         activeProjectId: null,
         modules: [],
@@ -514,6 +513,7 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   selectModule: (id) => {
+    graphRequest?.abort();
     set({
       activeId: id,
       selectedNodeId: null,

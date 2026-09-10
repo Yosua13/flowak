@@ -18,6 +18,7 @@ export default function Sidebar() {
     teamMembers,
     darkMode,
     toggleDarkMode,
+    saveStatus,
     importModule,
     addNotification,
     selectProject,
@@ -229,7 +230,7 @@ export default function Sidebar() {
           <div className="pt-4 border-t border-white/5">
             <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest px-2 mb-2 block flex items-center">
               <Users className="w-3.5 h-3.5 mr-1 text-[#C5A267]" />
-              Anggota Tim (Online)
+              Anggota Tim
             </span>
             <div className="space-y-2 px-2 pt-1.5">
               {teamMembers.map((member) => (
@@ -261,8 +262,8 @@ export default function Sidebar() {
           <div className="p-3.5 bg-[#1A1A1C] border border-white/5 rounded-xl text-left">
             <p className="text-[9px] uppercase tracking-widest text-[#C5A267] mb-2 font-mono font-bold">Sync Status</p>
             <div className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-              <span className="text-[11px] text-gray-300">Real-time Active</span>
+              <span className={`w-1.5 h-1.5 rounded-full ${saveStatus === 'saved' ? 'bg-emerald-500' : saveStatus === 'conflict' || saveStatus === 'failed' ? 'bg-rose-500' : saveStatus === 'offline' ? 'bg-amber-500' : 'bg-gray-500'}`}></span>
+              <span className="text-[11px] text-gray-300">{saveStatus === 'saving' ? 'Menyimpan…' : saveStatus === 'saved' ? 'Tersimpan' : saveStatus === 'offline' ? 'Offline — perubahan belum tersimpan' : saveStatus === 'conflict' ? 'Konflik perubahan' : saveStatus === 'failed' ? 'Gagal menyimpan' : 'Belum ada perubahan'}</span>
             </div>
           </div>
         </div>
