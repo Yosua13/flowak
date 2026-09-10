@@ -4,7 +4,9 @@
  */
 
 import AppShell from './components/AppShell';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from './services/queryClient';
 
 export default function App() {
-  return <AppShell />;
+  return <QueryClientProvider client={queryClient}><AppShell /></QueryClientProvider>;
 }

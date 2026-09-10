@@ -95,4 +95,5 @@ export interface Module {
   nodes: Node[];
   edges: Edge[];
   schemaVersion: number;
+  rowVersion?: number;
 }
