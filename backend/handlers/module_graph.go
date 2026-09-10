@@ -16,7 +16,19 @@ import (
 var nonIDChars = regexp.MustCompile(`[^a-zA-Z0-9_]+`)
 var slaPattern = regexp.MustCompile(`(?i)(\d+(?:[.,]\d+)?)\s*(menit|minute|minutes|jam|hour|hours|hari|day|days|minggu|week|weeks)`)
 
-func syncModuleGraph(tx *sql.Tx, moduleID string, nodesValue any, edgesValue any) error {
+const (
+	graphConflictCode = "GRAPH_VERSION_CONFLICT"
+	graphInvalidCode  = "INVALID_GRAPH_REFERENCE"
+)
+
+type graphSyncError struct {
+	Code    string
+	Message string
+}
+
+func (e *graphSyncError) Error() string { return e.Message }
+
+func syncModuleGraph(tx *sql.Tx, moduleID string, nodesValue any, edgesValue any, deletedNodes, deletedEdges []models.GraphDelete) error {
 	nodes, err := normalizeJSONArray(nodesValue)
 	if err != nil {
 		return fmt.Errorf("invalid nodes payload: %w", err)
@@ -26,14 +38,10 @@ func syncModuleGraph(tx *sql.Tx, moduleID string, nodesValue any, edgesValue any
 		return fmt.Errorf("invalid edges payload: %w", err)
 	}
 
-	if _, err := tx.Exec("DELETE FROM workflow_edges WHERE module_id = $1", moduleID); err != nil {
+	nodeIDs, err := activeNodeIDs(tx, moduleID)
+	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec("DELETE FROM workflow_nodes WHERE module_id = $1", moduleID); err != nil {
-		return err
-	}
-
-	nodeIDs := map[string]bool{}
 	for idx, node := range nodes {
 		nodeID := stringField(node, "id")
 		if nodeID == "" {
@@ -43,16 +51,88 @@ func syncModuleGraph(tx *sql.Tx, moduleID string, nodesValue any, edgesValue any
 
 		doc := mapField(node, "doc")
 		slaValue, slaUnit := parseSLA(stringField(doc, "sla"))
-		metadata := jsonText(map[string]any{"source": "frontend_graph", "raw": node})
+		expectedVersion, hasVersion := rowVersion(node)
+		if err := upsertNode(tx, moduleID, nodeID, idx, node, doc, slaValue, slaUnit, expectedVersion, hasVersion); err != nil {
+			return err
+		}
 
-		_, err := tx.Exec(`
+		roles := mapField(node, "roles")
+		if err := syncRoleFacet(tx, nodeID, "uiux", mapField(roles, "uiux")); err != nil {
+			return err
+		}
+		if err := syncRoleFacet(tx, nodeID, "frontend", mapField(roles, "frontend")); err != nil {
+			return err
+		}
+		if err := syncRoleFacet(tx, nodeID, "backend", mapField(roles, "backend")); err != nil {
+			return err
+		}
+	}
+
+	for idx, edge := range edges {
+		fromID := stringField(edge, "from")
+		toID := stringField(edge, "to")
+		if fromID == "" || toID == "" || fromID == toID || !nodeIDs[fromID] || !nodeIDs[toID] {
+			return &graphSyncError{Code: graphInvalidCode, Message: "edge source and target must be active nodes in the same module"}
+		}
+
+		edgeID := stringField(edge, "id")
+		if edgeID == "" {
+			edgeID = "edge_" + GenerateUUID()
+		}
+		expectedVersion, hasVersion := rowVersion(edge)
+		if err := upsertEdge(tx, moduleID, edgeID, idx, edge, expectedVersion, hasVersion); err != nil {
+			return err
+		}
+	}
+
+	if err := tombstoneEdges(tx, moduleID, deletedEdges); err != nil {
+		return err
+	}
+	if err := tombstoneNodes(tx, moduleID, deletedNodes); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func activeNodeIDs(tx *sql.Tx, moduleID string) (map[string]bool, error) {
+	rows, err := tx.Query("SELECT id FROM workflow_nodes WHERE module_id = $1 AND deleted_at IS NULL", moduleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids[id] = true
+	}
+	return ids, rows.Err()
+}
+
+func upsertNode(tx *sql.Tx, moduleID, nodeID string, idx int, node, doc map[string]any, slaValue, slaUnit any, expectedVersion int, hasVersion bool) error {
+	metadata := jsonText(map[string]any{"source": "frontend_graph", "raw": graphPayload(node)})
+	var currentVersion int
+	err := tx.QueryRow("SELECT row_version FROM workflow_nodes WHERE id = $1 AND module_id = $2 AND deleted_at IS NULL", nodeID, moduleID).Scan(&currentVersion)
+	if err == sql.ErrNoRows {
+		var foreignModule string
+		err = tx.QueryRow("SELECT module_id FROM workflow_nodes WHERE id = $1", nodeID).Scan(&foreignModule)
+		if err == nil {
+			return &graphSyncError{Code: graphInvalidCode, Message: "node belongs to another module or is deleted"}
+		}
+		if err != sql.ErrNoRows {
+			return err
+		}
+		_, err = tx.Exec(`
 			INSERT INTO workflow_nodes (
 				id, module_id, type, label, x, y, actor, trigger, input_desc, process_desc,
 				output_desc, business_rules, exception_path, system_context, sla_value, sla_unit,
-				priority, risk_level, acceptance_criteria, metadata, sort_order, updated_at
+				priority, risk_level, acceptance_criteria, metadata, sort_order, row_version, updated_at
 			) VALUES (
 				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-				$11, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21, CURRENT_TIMESTAMP
+				$11, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21, 1, CURRENT_TIMESTAMP
 			)
 		`,
 			nodeID,
@@ -77,55 +157,143 @@ func syncModuleGraph(tx *sql.Tx, moduleID string, nodesValue any, edgesValue any
 			metadata,
 			idx,
 		)
+		return err
+	}
+	if !hasVersion || expectedVersion != currentVersion {
+		return &graphSyncError{Code: graphConflictCode, Message: "node version conflict"}
+	}
+	result, err := tx.Exec(`UPDATE workflow_nodes SET
+		type = $3, label = $4, x = $5, y = $6, actor = $7, trigger = $8, input_desc = $9, process_desc = $10,
+		output_desc = $11, business_rules = $12, exception_path = $13, system_context = $14, sla_value = $15, sla_unit = $16,
+		priority = $17, risk_level = $18, acceptance_criteria = $19, metadata = $20::jsonb, sort_order = $21,
+		row_version = row_version + 1, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND module_id = $2 AND deleted_at IS NULL AND row_version = $22
+		AND (type, label, x, y, actor, trigger, input_desc, process_desc, output_desc, business_rules, exception_path, system_context, sla_value, sla_unit, priority, risk_level, acceptance_criteria, metadata, sort_order)
+		IS DISTINCT FROM ($3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21)`,
+		nodeValues(nodeID, moduleID, idx, node, doc, slaValue, slaUnit, metadata, expectedVersion)...)
+	if err != nil {
+		return err
+	}
+	_, err = result.RowsAffected()
+	return err
+}
+
+func nodeValues(nodeID, moduleID string, idx int, node, doc map[string]any, slaValue, slaUnit any, metadata string, expectedVersion int) []any {
+	return []any{
+		nodeID, moduleID, normalizeNodeType(stringField(node, "type")), defaultString(stringField(node, "label"), "Langkah Alur"), floatField(node, "x"), floatField(node, "y"),
+		nullableString(stringField(doc, "actor")), nullableString(firstString(doc, "trigger", "event")), nullableString(stringField(doc, "input")), nullableString(stringField(doc, "process")),
+		nullableString(stringField(doc, "output")), nullableString(stringField(doc, "rules")), nullableString(firstString(doc, "exceptionPath", "exception_path")), nullableString(stringField(doc, "system")),
+		slaValue, slaUnit, defaultString(firstString(doc, "priority"), "medium"), defaultString(firstString(doc, "riskLevel", "risk_level"), "medium"), nullableString(firstString(doc, "acceptanceCriteria", "acceptance_criteria")),
+		metadata, idx, expectedVersion,
+	}
+}
+
+func upsertEdge(tx *sql.Tx, moduleID, edgeID string, idx int, edge map[string]any, expectedVersion int, hasVersion bool) error {
+	metadata := jsonText(map[string]any{"source": "frontend_graph", "raw": graphPayload(edge)})
+	values := []any{edgeID, moduleID, stringField(edge, "from"), stringField(edge, "to"), nullableString(stringField(edge, "label")), nullableString(firstString(edge, "condition", "conditionText", "condition_text")), metadata, idx}
+	var currentVersion int
+	err := tx.QueryRow("SELECT row_version FROM workflow_edges WHERE id = $1 AND module_id = $2 AND deleted_at IS NULL", edgeID, moduleID).Scan(&currentVersion)
+	if err == sql.ErrNoRows {
+		var foreignModule string
+		err = tx.QueryRow("SELECT module_id FROM workflow_edges WHERE id = $1", edgeID).Scan(&foreignModule)
+		if err == nil {
+			return &graphSyncError{Code: graphInvalidCode, Message: "edge belongs to another module or is deleted"}
+		}
+		if err != sql.ErrNoRows {
+			return err
+		}
+		var existingID string
+		err = tx.QueryRow("SELECT id FROM workflow_edges WHERE module_id = $1 AND from_node_id = $2 AND to_node_id = $3 AND deleted_at IS NULL", moduleID, values[2], values[3]).Scan(&existingID)
+		if err == nil {
+			return &graphSyncError{Code: graphInvalidCode, Message: "duplicate edge must use its existing id"}
+		}
+		if err != sql.ErrNoRows {
+			return err
+		}
+		_, err = tx.Exec(`INSERT INTO workflow_edges (
+			id, module_id, from_node_id, to_node_id, label, condition_text, metadata, sort_order, row_version, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, 1, CURRENT_TIMESTAMP)`, values...)
+		return err
+	}
+	if !hasVersion || expectedVersion != currentVersion {
+		return &graphSyncError{Code: graphConflictCode, Message: "edge version conflict"}
+	}
+	values = append(values, expectedVersion)
+	_, err = tx.Exec(`UPDATE workflow_edges SET
+		from_node_id = $3, to_node_id = $4, label = $5, condition_text = $6, metadata = $7::jsonb, sort_order = $8,
+		row_version = row_version + 1, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND module_id = $2 AND deleted_at IS NULL AND row_version = $9
+		AND (from_node_id, to_node_id, label, condition_text, metadata, sort_order)
+		IS DISTINCT FROM ($3, $4, $5, $6, $7::jsonb, $8)`, values...)
+	return err
+}
+
+func tombstoneEdges(tx *sql.Tx, moduleID string, deleted []models.GraphDelete) error {
+	for _, item := range deleted {
+		if strings.TrimSpace(item.ID) == "" || item.RowVersion < 1 {
+			return &graphSyncError{Code: graphInvalidCode, Message: "deleted edge requires id and rowVersion"}
+		}
+		result, err := tx.Exec(`UPDATE workflow_edges SET deleted_at = CURRENT_TIMESTAMP, row_version = row_version + 1, updated_at = CURRENT_TIMESTAMP
+			WHERE id = $1 AND module_id = $2 AND deleted_at IS NULL AND row_version = $3`, item.ID, moduleID, item.RowVersion)
 		if err != nil {
 			return err
 		}
-
-		roles := mapField(node, "roles")
-		if err := syncRoleFacet(tx, nodeID, "uiux", mapField(roles, "uiux")); err != nil {
-			return err
-		}
-		if err := syncRoleFacet(tx, nodeID, "frontend", mapField(roles, "frontend")); err != nil {
-			return err
-		}
-		if err := syncRoleFacet(tx, nodeID, "backend", mapField(roles, "backend")); err != nil {
-			return err
-		}
-	}
-
-	for idx, edge := range edges {
-		fromID := stringField(edge, "from")
-		toID := stringField(edge, "to")
-		if fromID == "" || toID == "" || fromID == toID || !nodeIDs[fromID] || !nodeIDs[toID] {
-			continue
-		}
-
-		edgeID := stringField(edge, "id")
-		if edgeID == "" {
-			edgeID = "edge_" + GenerateUUID()
-		}
-
-		_, err := tx.Exec(`
-			INSERT INTO workflow_edges (
-				id, module_id, from_node_id, to_node_id, label, condition_text, metadata, sort_order, updated_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, CURRENT_TIMESTAMP)
-			ON CONFLICT (module_id, from_node_id, to_node_id) DO NOTHING
-		`,
-			edgeID,
-			moduleID,
-			fromID,
-			toID,
-			nullableString(stringField(edge, "label")),
-			nullableString(firstString(edge, "condition", "conditionText", "condition_text")),
-			jsonText(map[string]any{"source": "frontend_graph", "raw": edge}),
-			idx,
-		)
+		n, err := result.RowsAffected()
 		if err != nil {
 			return err
 		}
+		if n == 0 {
+			return &graphSyncError{Code: graphConflictCode, Message: "edge version conflict"}
+		}
 	}
-
 	return nil
+}
+
+func tombstoneNodes(tx *sql.Tx, moduleID string, deleted []models.GraphDelete) error {
+	for _, item := range deleted {
+		if strings.TrimSpace(item.ID) == "" || item.RowVersion < 1 {
+			return &graphSyncError{Code: graphInvalidCode, Message: "deleted node requires id and rowVersion"}
+		}
+		var hasEdges bool
+		if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM workflow_edges WHERE module_id = $1 AND deleted_at IS NULL AND (from_node_id = $2 OR to_node_id = $2))`, moduleID, item.ID).Scan(&hasEdges); err != nil {
+			return err
+		}
+		if hasEdges {
+			return &graphSyncError{Code: graphInvalidCode, Message: "connected edges must be explicitly deleted before deleting a node"}
+		}
+		result, err := tx.Exec(`UPDATE workflow_nodes SET deleted_at = CURRENT_TIMESTAMP, row_version = row_version + 1, updated_at = CURRENT_TIMESTAMP
+			WHERE id = $1 AND module_id = $2 AND deleted_at IS NULL AND row_version = $3`, item.ID, moduleID, item.RowVersion)
+		if err != nil {
+			return err
+		}
+		n, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return &graphSyncError{Code: graphConflictCode, Message: "node version conflict"}
+		}
+	}
+	return nil
+}
+
+func rowVersion(value map[string]any) (int, bool) {
+	raw, ok := value["rowVersion"]
+	if !ok || raw == nil {
+		return 0, false
+	}
+	version := int(floatField(map[string]any{"version": raw}, "version"))
+	return version, version > 0
+}
+
+func graphPayload(value map[string]any) map[string]any {
+	payload := make(map[string]any, len(value))
+	for key, item := range value {
+		if key != "rowVersion" && key != "deletedAt" {
+			payload[key] = item
+		}
+	}
+	return payload
 }
 
 func syncRoleFacet(tx *sql.Tx, nodeID, roleKey string, facet map[string]any) error {
@@ -258,9 +426,9 @@ func hydrateModuleGraph(module *models.Module) error {
 	rows, err := db.DB.Query(`
 		SELECT id, type, label, x, y, actor, trigger, input_desc, process_desc,
 			output_desc, business_rules, exception_path, system_context, sla_value,
-			sla_unit, priority, risk_level, acceptance_criteria
+			sla_unit, priority, risk_level, acceptance_criteria, row_version
 		FROM workflow_nodes
-		WHERE module_id = $1
+		WHERE module_id = $1 AND deleted_at IS NULL
 		ORDER BY sort_order ASC, created_at ASC
 	`, module.ID)
 	if err != nil {
@@ -276,7 +444,8 @@ func hydrateModuleGraph(module *models.Module) error {
 		var actor, trigger, input, process, output, rules, exceptionPath, systemContext sql.NullString
 		var slaValue sql.NullFloat64
 		var slaUnit, priority, riskLevel, acceptanceCriteria sql.NullString
-		if err := rows.Scan(&id, &nodeType, &label, &x, &y, &actor, &trigger, &input, &process, &output, &rules, &exceptionPath, &systemContext, &slaValue, &slaUnit, &priority, &riskLevel, &acceptanceCriteria); err != nil {
+		var rowVersion int
+		if err := rows.Scan(&id, &nodeType, &label, &x, &y, &actor, &trigger, &input, &process, &output, &rules, &exceptionPath, &systemContext, &slaValue, &slaUnit, &priority, &riskLevel, &acceptanceCriteria, &rowVersion); err != nil {
 			return err
 		}
 
@@ -296,13 +465,14 @@ func hydrateModuleGraph(module *models.Module) error {
 		putIfString(doc, "acceptanceCriteria", acceptanceCriteria)
 
 		node := map[string]any{
-			"id":    id,
-			"type":  nodeType,
-			"label": label,
-			"x":     x,
-			"y":     y,
-			"doc":   doc,
-			"roles": map[string]any{},
+			"id":         id,
+			"type":       nodeType,
+			"label":      label,
+			"x":          x,
+			"y":          y,
+			"rowVersion": rowVersion,
+			"doc":        doc,
+			"roles":      map[string]any{},
 		}
 		nodes = append(nodes, node)
 		nodeIndex[id] = node
@@ -326,9 +496,9 @@ func hydrateModuleGraph(module *models.Module) error {
 	}
 
 	edgeRows, err := db.DB.Query(`
-		SELECT id, from_node_id, to_node_id, label, condition_text
+		SELECT id, from_node_id, to_node_id, label, condition_text, row_version
 		FROM workflow_edges
-		WHERE module_id = $1
+		WHERE module_id = $1 AND deleted_at IS NULL
 		ORDER BY sort_order ASC, created_at ASC
 	`, module.ID)
 	if err != nil {
@@ -340,13 +510,15 @@ func hydrateModuleGraph(module *models.Module) error {
 	for edgeRows.Next() {
 		var id, fromID, toID string
 		var label, condition sql.NullString
-		if err := edgeRows.Scan(&id, &fromID, &toID, &label, &condition); err != nil {
+		var rowVersion int
+		if err := edgeRows.Scan(&id, &fromID, &toID, &label, &condition, &rowVersion); err != nil {
 			return err
 		}
 		edge := map[string]any{
-			"id":   id,
-			"from": fromID,
-			"to":   toID,
+			"id":         id,
+			"from":       fromID,
+			"to":         toID,
+			"rowVersion": rowVersion,
 		}
 		putIfString(edge, "label", label)
 		putIfString(edge, "condition", condition)
@@ -358,6 +530,29 @@ func hydrateModuleGraph(module *models.Module) error {
 	module.Nodes = string(nodesJSON)
 	module.Edges = string(edgesJSON)
 	return nil
+}
+
+// ModuleGraphSnapshotMismatch is a read-only admin/backfill check. It compares
+// the deprecated JSON snapshot with a graph hydrated solely from normalized rows.
+func ModuleGraphSnapshotMismatch(moduleID string) (bool, error) {
+	var nodesSnapshot, edgesSnapshot string
+	if err := db.DB.QueryRow("SELECT nodes, edges FROM modules WHERE id = $1", moduleID).Scan(&nodesSnapshot, &edgesSnapshot); err != nil {
+		return false, err
+	}
+	normalized := models.Module{ID: moduleID}
+	if err := hydrateModuleGraph(&normalized); err != nil {
+		return false, err
+	}
+	return canonicalJSON(nodesSnapshot) != canonicalJSON(normalized.Nodes) || canonicalJSON(edgesSnapshot) != canonicalJSON(normalized.Edges), nil
+}
+
+func canonicalJSON(value string) string {
+	var decoded any
+	if json.Unmarshal([]byte(value), &decoded) != nil {
+		return value
+	}
+	encoded, _ := json.Marshal(decoded)
+	return string(encoded)
 }
 
 func hydrateRoleTasks(moduleID string, nodeIndex map[string]map[string]any) error {
