@@ -198,14 +198,16 @@ export const useStore = create<AppStore>((set, get) => ({
 
   initializeStore: async () => {
     document.documentElement.classList.add('dark');
-    const storedToken = localStorage.getItem('flowak_token');
     const storedUser = localStorage.getItem('flowak_user');
 
-    if (storedToken && storedUser) {
+    if (storedUser) {
       try {
-        const parsedUser = JSON.parse(storedUser);
+        const refresh = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' });
+        if (!refresh.ok) throw new Error('session expired');
+        const session = await refresh.json();
+        const parsedUser = session.user;
         set({
-          token: storedToken,
+          token: session.token,
           currentUser: parsedUser,
           isAuthenticated: true,
           screen: 'dashboard'
@@ -247,7 +249,6 @@ export const useStore = create<AppStore>((set, get) => ({
         return false;
       }
 
-      localStorage.setItem('flowak_token', data.token);
       localStorage.setItem('flowak_user', JSON.stringify(data.user));
 
       set({
@@ -291,7 +292,7 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   logoutUser: () => {
-    localStorage.removeItem('flowak_token');
+    void fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
     localStorage.removeItem('flowak_user');
 
     set({
