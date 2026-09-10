@@ -74,6 +74,12 @@ func runMigrations() {
 
 	// Execute SaaS tenant and normalized workflow migration
 	runMigrationFromFile(DB, "04_saas_normalized_schema.sql")
+  
+  // Execute graph safety migration
+	runMigrationFromFile(DB, "05_workflow_graph_safety.sql")
+
+	// Execute tenant authentication and project RBAC migration
+	runMigrationFromFile(DB, "06_tenant_auth_rbac.sql")
 
 	log.Println("Migrations executed successfully.")
 }

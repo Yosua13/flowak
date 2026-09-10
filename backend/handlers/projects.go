@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -34,13 +35,18 @@ func GetProjectsHandler(c *gin.Context) {
 		return
 	}
 
-	// Retrieve all projects owned by the user or where the user is a member
+	organizationID, ok := c.Get(string(middleware.OrganizationContextKey))
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization access denied"})
+		return
+	}
+	// Retrieve only projects in the active organization.
 	rows, err := db.DB.Query(`
 		SELECT DISTINCT p.id, p.name, p.description, p.owner_id, p.created_at 
 		FROM projects p 
 		LEFT JOIN project_members pm ON p.id = pm.project_id 
-		WHERE p.status = 'active' AND (p.owner_id = $1 OR pm.user_id = $1)
-		ORDER BY p.created_at DESC`, userID)
+		WHERE p.status = 'active' AND p.organization_id = $2 AND (p.owner_id = $1 OR pm.user_id = $1)
+		ORDER BY p.created_at DESC`, userID, organizationID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database query error"})
 		return
@@ -68,10 +74,14 @@ func CreateProjectHandler(c *gin.Context) {
 		return
 	}
 
-	// Only PM can create new projects
-	role, err := middleware.GetUserRole(c)
-	if err != nil || role != "pm" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Hanya Project Manager (PM) yang dapat membuat proyek baru"})
+	organizationID, ok := c.Get(string(middleware.OrganizationContextKey))
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization access denied"})
+		return
+	}
+	var organizationRole string
+	if err := db.DB.QueryRow(`SELECT role FROM organization_members WHERE organization_id=$1 AND user_id=$2 AND status='active'`, organizationID, userID).Scan(&organizationRole); err != nil || organizationRole != "owner" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Only organization owners can create projects"})
 		return
 	}
 
@@ -99,8 +109,8 @@ func CreateProjectHandler(c *gin.Context) {
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec("INSERT INTO projects (id, name, description, owner_id) VALUES ($1, $2, $3, $4)",
-		projectID, name, description, userID)
+	_, err = tx.Exec("INSERT INTO projects (id, name, description, owner_id, organization_id) VALUES ($1, $2, $3, $4, $5)",
+		projectID, name, description, userID, organizationID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create project record"})
 		return
@@ -142,7 +152,7 @@ func CreateProjectHandler(c *gin.Context) {
 
 // GetProjectDetailHandler handles GET /api/projects/:id
 func GetProjectDetailHandler(c *gin.Context) {
-	userID, err := middleware.GetUserID(c)
+	_, err := middleware.GetUserID(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -154,10 +164,8 @@ func GetProjectDetailHandler(c *gin.Context) {
 		return
 	}
 
-	// Authorization check
-	hasAccess, err := hasProjectAccess(userID, projectID)
-	if err != nil || !hasAccess {
-		c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to access this project"})
+	// Tenant and project role are resolved by the shared policy.
+	if !middleware.AuthorizeProject(c, projectID, middleware.CapabilityView) {
 		return
 	}
 
@@ -218,10 +226,7 @@ func DeleteProjectHandler(c *gin.Context) {
 		return
 	}
 
-	// Authorization check
-	hasAccess, err := hasProjectAccess(userID, projectID)
-	if err != nil || !hasAccess {
-		c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to access this project"})
+	if !middleware.AuthorizeProject(c, projectID, middleware.CapabilityManage) {
 		return
 	}
 
@@ -247,7 +252,7 @@ func DeleteProjectHandler(c *gin.Context) {
 
 // GetProjectModulesHandler handles GET /api/projects/:id/modules
 func GetProjectModulesHandler(c *gin.Context) {
-	userID, err := middleware.GetUserID(c)
+	_, err := middleware.GetUserID(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -255,10 +260,7 @@ func GetProjectModulesHandler(c *gin.Context) {
 
 	projectID := c.Param("id")
 
-	// Authorization check
-	hasAccess, err := hasProjectAccess(userID, projectID)
-	if err != nil || !hasAccess {
-		c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to access this project"})
+	if !middleware.AuthorizeProject(c, projectID, middleware.CapabilityView) {
 		return
 	}
 
@@ -295,10 +297,7 @@ func CreateProjectModuleHandler(c *gin.Context) {
 
 	projectID := c.Param("id")
 
-	// Authorization check
-	hasAccess, err := hasProjectAccess(userID, projectID)
-	if err != nil || !hasAccess {
-		c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to access this project"})
+	if !middleware.AuthorizeProject(c, projectID, middleware.CapabilityManage) {
 		return
 	}
 
@@ -378,7 +377,7 @@ func CreateProjectModuleHandler(c *gin.Context) {
 				}
 			}
 		}
-		if err := syncModuleGraph(tx, moduleID, syncNodes, syncEdges); err != nil {
+		if err := syncModuleGraph(tx, moduleID, syncNodes, syncEdges, req.DeletedNodes, req.DeletedEdges); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -416,9 +415,7 @@ func UpdateModuleHandler(c *gin.Context) {
 		return
 	}
 
-	hasAccess, err := hasProjectAccess(userID, projectID)
-	if err != nil || !hasAccess {
-		c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to access this module"})
+	if !middleware.AuthorizeProject(c, projectID, middleware.CapabilityEditGraph) {
 		return
 	}
 
@@ -435,32 +432,6 @@ func UpdateModuleHandler(c *gin.Context) {
 	}
 	defer tx.Rollback()
 
-	if req.Nodes != nil {
-		nodesBytes, err := json.Marshal(req.Nodes)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid nodes format"})
-			return
-		}
-		_, err = tx.Exec("UPDATE modules SET nodes = $1, version = version + 1, updated_by = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3", string(nodesBytes), userID, moduleID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update nodes data"})
-			return
-		}
-	}
-
-	if req.Edges != nil {
-		edgesBytes, err := json.Marshal(req.Edges)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid edges format"})
-			return
-		}
-		_, err = tx.Exec("UPDATE modules SET edges = $1, updated_by = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3", string(edgesBytes), userID, moduleID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update edges data"})
-			return
-		}
-	}
-
 	if req.Name != "" || req.Description != "" {
 		_, err = tx.Exec(`
 			UPDATE modules
@@ -476,9 +447,27 @@ func UpdateModuleHandler(c *gin.Context) {
 		}
 	}
 
-	if req.Nodes != nil || req.Edges != nil {
-		if err := syncModuleGraph(tx, moduleID, req.Nodes, req.Edges); err != nil {
+	if req.Nodes != nil || req.Edges != nil || len(req.DeletedNodes) > 0 || len(req.DeletedEdges) > 0 {
+		if err := syncModuleGraph(tx, moduleID, req.Nodes, req.Edges, req.DeletedNodes, req.DeletedEdges); err != nil {
+			var graphErr *graphSyncError
+			if errors.As(err, &graphErr) {
+				status := http.StatusBadRequest
+				if graphErr.Code == graphConflictCode {
+					status = http.StatusConflict
+				}
+				c.JSON(status, gin.H{"error": graphErr.Message, "error_code": graphErr.Code})
+				return
+			}
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Deprecated compatibility snapshot: normalized workflow tables remain authoritative.
+		nodesJSON, _ := json.Marshal(req.Nodes)
+		edgesJSON, _ := json.Marshal(req.Edges)
+		_, err = tx.Exec("UPDATE modules SET nodes = $1, edges = $2, version = version + 1, updated_by = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $4", string(nodesJSON), string(edgesJSON), userID, moduleID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update graph compatibility snapshot"})
 			return
 		}
 	}
@@ -488,7 +477,15 @@ func UpdateModuleHandler(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Module updated successfully"})
+	graph := models.Module{ID: moduleID}
+	if err := hydrateModuleGraph(&graph); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hydrate updated workflow graph"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true, "message": "Module updated successfully",
+		"nodes": json.RawMessage(graph.Nodes), "edges": json.RawMessage(graph.Edges),
+	})
 }
 
 // DeleteModuleHandler handles DELETE /api/modules/:id
@@ -515,9 +512,7 @@ func DeleteModuleHandler(c *gin.Context) {
 		return
 	}
 
-	hasAccess, err := hasProjectAccess(userID, projectID)
-	if err != nil || !hasAccess {
-		c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to access this module"})
+	if !middleware.AuthorizeProject(c, projectID, middleware.CapabilityManage) {
 		return
 	}
 
@@ -537,7 +532,7 @@ func DeleteModuleHandler(c *gin.Context) {
 
 // GetProjectMembersHandler handles GET /api/projects/:id/members
 func GetProjectMembersHandler(c *gin.Context) {
-	userID, err := middleware.GetUserID(c)
+	_, err := middleware.GetUserID(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -561,10 +556,7 @@ func GetProjectMembersHandler(c *gin.Context) {
 		return
 	}
 
-	// Check access
-	hasAccess, err := hasProjectAccess(userID, projectID)
-	if err != nil || !hasAccess {
-		c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to view members of this project"})
+	if !middleware.AuthorizeProject(c, projectID, middleware.CapabilityView) {
 		return
 	}
 
@@ -610,6 +602,9 @@ func AddProjectMemberHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Project ID is required"})
 		return
 	}
+	if !middleware.AuthorizeProject(c, projectID, middleware.CapabilityManage) {
+		return
+	}
 
 	// Get owner
 	var ownerID string
@@ -643,9 +638,11 @@ func AddProjectMemberHandler(c *gin.Context) {
 		return
 	}
 
-	// Ensure target user exists
+	organizationID, _ := c.Get(string(middleware.OrganizationContextKey))
+	// The target must already belong to the active tenant. Cross-tenant user
+	// IDs are rejected even when guessed by a project owner.
 	var targetRole string
-	err = db.DB.QueryRow("SELECT role FROM users WHERE id = $1 AND status = 'active'", targetUserID).Scan(&targetRole)
+	err = db.DB.QueryRow(`SELECT u.role FROM users u JOIN organization_members om ON om.user_id=u.id WHERE u.id=$1 AND u.status='active' AND om.organization_id=$2 AND om.status='active'`, targetUserID, organizationID).Scan(&targetRole)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "User not found"})
 		return
@@ -687,6 +684,9 @@ func RemoveProjectMemberHandler(c *gin.Context) {
 	targetUserID := c.Param("userId")
 	if projectID == "" || targetUserID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Project ID and User ID are required"})
+		return
+	}
+	if !middleware.AuthorizeProject(c, projectID, middleware.CapabilityManage) {
 		return
 	}
 

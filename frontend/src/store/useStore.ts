@@ -7,6 +7,9 @@ import { create } from 'zustand';
 import { Module, Node, Edge, ID, NodeType, RoleKey, BusinessFacet, Status } from '../domain/types';
 import { canAddEdge, addEdge as domainAddEdge, uid } from '../domain/invariants';
 import { TeamMember } from '../config/seedData';
+import { apiClient } from '../services/apiClient';
+import { saveGraphOptimistically, SaveStatus } from '../services/graphMutation';
+import { persistenceAdapter } from '../infra/persistence';
 
 export type AppView = 'canvas' | 'status' | 'doc' | 'calendar' | 'analytics' | 'kanban' | 'team';
 export type AppScreen = 'login' | 'register' | 'dashboard' | 'workspace';
@@ -56,6 +59,8 @@ interface AppStore {
   teamMembers: TeamMember[];
   projectMembers: TeamMember[];
   dashboardStats: { myTasksCount: number; completionRate: number } | null;
+  saveStatus: SaveStatus;
+  setSaveStatus: (status: SaveStatus) => void;
 
   // Actions - UI/Screen routing
   setScreen: (screen: AppScreen) => void;
@@ -119,18 +124,21 @@ interface AppStore {
   loadDashboardStats: () => Promise<void>;
 }
 
-let saveTimeout: any = null;
+let saveTimeout: ReturnType<typeof setTimeout> | null = null;
+let graphRequest: AbortController | null = null;
+let projectRequest: AbortController | null = null;
+const confirmedGraphs = new Map<ID, Module>();
 
-const debouncedSave = (get: any) => {
-  const { activeId, modules, token } = get();
+const debouncedSave = (set: any, get: any) => {
+  const { activeId, token } = get();
   if (!activeId || !token) return;
-  const activeMod = modules.find((m: any) => m.id === activeId);
-  if (!activeMod) return;
-
-  if (saveTimeout) clearTimeout(saveTimeout);
-  saveTimeout = setTimeout(async () => {
+	if (saveTimeout) clearTimeout(saveTimeout);
+	saveTimeout = setTimeout(async () => {
+		const latest = get();
+		const activeMod = latest.modules.find((m: any) => m.id === activeId);
+		if (!activeMod) return;
     try {
-      await fetch(`/api/modules/${activeId}`, {
+		const response = await fetch(`/api/modules/${activeId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -138,9 +146,21 @@ const debouncedSave = (get: any) => {
         },
         body: JSON.stringify({
           nodes: activeMod.nodes,
-          edges: activeMod.edges
+          edges: activeMod.edges,
+          deletedNodes: activeMod.deletedNodes || [],
+          deletedEdges: activeMod.deletedEdges || []
         })
       });
+		if (!response.ok) {
+			console.error('Failed to sync canvas updates to server:', await response.text());
+			return;
+		}
+		const result = await response.json();
+		if (Array.isArray(result.nodes) && Array.isArray(result.edges)) {
+			set((state: any) => ({ modules: state.modules.map((module: Module) => module.id === activeId
+				? { ...module, nodes: result.nodes, edges: result.edges, deletedNodes: [], deletedEdges: [] }
+				: module) }));
+		}
     } catch (err) {
       console.error('Failed to sync canvas updates to server:', err);
     }
@@ -168,6 +188,8 @@ export const useStore = create<AppStore>((set, get) => ({
   teamMembers: [],
   projectMembers: [],
   dashboardStats: null,
+  saveStatus: 'idle',
+  setSaveStatus: (saveStatus) => set({ saveStatus }),
   selectedNotif: null,
   notifications: [
     {
@@ -186,22 +208,24 @@ export const useStore = create<AppStore>((set, get) => ({
 
   initializeStore: async () => {
     document.documentElement.classList.add('dark');
-    const storedToken = localStorage.getItem('flowak_token');
     const storedUser = localStorage.getItem('flowak_user');
 
-    if (storedToken && storedUser) {
+    if (storedUser) {
       try {
-        const parsedUser = JSON.parse(storedUser);
+        const refresh = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' });
+        if (!refresh.ok) throw new Error('session expired');
+        const session = await refresh.json();
+        const parsedUser = session.user;
         set({
-          token: storedToken,
+          token: session.token,
           currentUser: parsedUser,
           isAuthenticated: true,
           screen: 'dashboard'
         });
         await get().loadProjects();
         await get().loadTeamMembers();
-      } catch (err) {
-        get().logoutUser();
+      } catch {
+        set({ screen: 'login' });
       }
     } else {
       set({ screen: 'login' });
@@ -216,6 +240,7 @@ export const useStore = create<AppStore>((set, get) => ({
       } else {
         document.documentElement.classList.remove('dark');
       }
+      persistenceAdapter.savePreferences({ darkMode: mode });
       return { darkMode: mode };
     });
   },
@@ -235,7 +260,7 @@ export const useStore = create<AppStore>((set, get) => ({
         return false;
       }
 
-      localStorage.setItem('flowak_token', data.token);
+      apiClient.setToken(data.token);
       localStorage.setItem('flowak_user', JSON.stringify(data.user));
 
       set({
@@ -279,7 +304,7 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   logoutUser: () => {
-    localStorage.removeItem('flowak_token');
+    void fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
     localStorage.removeItem('flowak_user');
 
     set({
@@ -370,6 +395,8 @@ export const useStore = create<AppStore>((set, get) => ({
     if (!token) return;
 
     if (!projectId) {
+      graphRequest?.abort();
+      projectRequest?.abort();
       set({
         activeProjectId: null,
         modules: [],
@@ -381,8 +408,11 @@ export const useStore = create<AppStore>((set, get) => ({
     }
 
     try {
+      projectRequest?.abort();
+      projectRequest = apiClient.abortable();
       const res = await fetch(`/api/projects/${projectId}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { 'Authorization': `Bearer ${token}` },
+        signal: projectRequest.signal,
       });
       if (res.ok) {
         const data = await res.json();
@@ -393,6 +423,7 @@ export const useStore = create<AppStore>((set, get) => ({
           nodes: typeof m.nodes === 'string' ? JSON.parse(m.nodes) : m.nodes,
           edges: typeof m.edges === 'string' ? JSON.parse(m.edges) : m.edges
         }));
+        parsedModules.forEach((module: Module) => confirmedGraphs.set(module.id, module));
 
         set({
           activeProjectId: projectId,
@@ -514,6 +545,7 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   selectModule: (id) => {
+    graphRequest?.abort();
     set({
       activeId: id,
       selectedNodeId: null,
@@ -608,7 +640,7 @@ export const useStore = create<AppStore>((set, get) => ({
     });
 
     set({ modules: updated, selectedNodeId: newNode.id });
-    debouncedSave(get);
+    debouncedSave(set, get);
 
     get().addNotification(
       'Langkah Baru Ditambahkan',
@@ -632,7 +664,7 @@ export const useStore = create<AppStore>((set, get) => ({
     });
 
     set({ modules: updated });
-    debouncedSave(get);
+    debouncedSave(set, get);
   },
 
   updateNode: (id, patch) => {
@@ -650,7 +682,7 @@ export const useStore = create<AppStore>((set, get) => ({
     });
 
     set({ modules: updated });
-    debouncedSave(get);
+    debouncedSave(set, get);
   },
 
   updateDoc: (id, fields) => {
@@ -668,7 +700,7 @@ export const useStore = create<AppStore>((set, get) => ({
     });
 
     set({ modules: updated });
-    debouncedSave(get);
+    debouncedSave(set, get);
   },
 
   updateRole: (id, role, patch) => {
@@ -717,7 +749,7 @@ export const useStore = create<AppStore>((set, get) => ({
     }
 
     set({ modules: updated });
-    debouncedSave(get);
+    debouncedSave(set, get);
   },
 
   deleteNode: (id) => {
@@ -727,7 +759,8 @@ export const useStore = create<AppStore>((set, get) => ({
     const activeMod = modules.find((m) => m.id === activeId);
     if (!activeMod) return;
 
-    const deletingNodeName = activeMod.nodes.find((n) => n.id === id)?.label || 'Langkah';
+    const deletingNode = activeMod.nodes.find((n) => n.id === id);
+    const deletingNodeName = deletingNode?.label || 'Langkah';
     
     // Delete logic helper
     const filteredNodes = activeMod.nodes.filter((n) => n.id !== id);
@@ -736,7 +769,12 @@ export const useStore = create<AppStore>((set, get) => ({
     const updatedMod = {
       ...activeMod,
       nodes: filteredNodes,
-      edges: filteredEdges
+      edges: filteredEdges,
+      deletedNodes: deletingNode?.rowVersion ? [...(activeMod.deletedNodes || []), { id, rowVersion: deletingNode.rowVersion }] : activeMod.deletedNodes,
+      deletedEdges: [...(activeMod.deletedEdges || []), ...activeMod.edges
+        .filter((edge) => edge.from === id || edge.to === id)
+        .filter((edge) => edge.rowVersion)
+        .map((edge) => ({ id: edge.id, rowVersion: edge.rowVersion! }))]
     };
 
     const updated = modules.map((m) => (m.id === activeId ? updatedMod : m));
@@ -746,7 +784,7 @@ export const useStore = create<AppStore>((set, get) => ({
       selectedNodeId: null,
       connectFrom: null,
     });
-    debouncedSave(get);
+    debouncedSave(set, get);
 
     get().addNotification(
       'Hapus Langkah Alur',
@@ -794,7 +832,7 @@ export const useStore = create<AppStore>((set, get) => ({
       modules: updated,
       connectFrom: null,
     });
-    debouncedSave(get);
+    debouncedSave(set, get);
 
     get().addNotification(
       'Koneksi Berhasil',
@@ -807,18 +845,20 @@ export const useStore = create<AppStore>((set, get) => ({
     const { activeId, modules } = get();
     if (!activeId) return;
 
+    const deletedEdge = modules.find((m) => m.id === activeId)?.edges.find((edge) => edge.id === id);
     const updated = modules.map((m) => {
       if (m.id === activeId) {
         return {
           ...m,
           edges: m.edges.filter((e) => e.id !== id),
+          deletedEdges: deletedEdge?.rowVersion ? [...(m.deletedEdges || []), { id, rowVersion: deletedEdge.rowVersion }] : m.deletedEdges,
         };
       }
       return m;
     });
 
     set({ modules: updated });
-    debouncedSave(get);
+    debouncedSave(set, get);
 
     get().addNotification(
       'Koneksi Dihapus',
@@ -842,7 +882,7 @@ export const useStore = create<AppStore>((set, get) => ({
     });
 
     set({ modules: updated });
-    debouncedSave(get);
+    debouncedSave(set, get);
   },
 
   selectNode: (id) => {
@@ -914,7 +954,7 @@ export const useStore = create<AppStore>((set, get) => ({
     });
 
     set({ modules: updated, activeId: moduleId });
-    debouncedSave(get);
+    debouncedSave(set, get);
 
     get().addNotification(
       'Alur AI Dimuat',
