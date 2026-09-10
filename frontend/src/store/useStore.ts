@@ -224,7 +224,10 @@ export const useStore = create<AppStore>((set, get) => ({
         });
         await get().loadProjects();
         await get().loadTeamMembers();
-    } catch {
+      } catch {
+        set({ screen: 'login' });
+      }
+    } else {
       set({ screen: 'login' });
     }
   },
