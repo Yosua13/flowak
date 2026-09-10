@@ -14,10 +14,11 @@ type User struct {
 
 // UserRegisterRequest is the payload to register a new user
 type UserRegisterRequest struct {
-	Name     string `json:"name"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Role     string `json:"role"`
+	Name             string `json:"name"`
+	Email            string `json:"email"`
+	Password         string `json:"password"`
+	Role             string `json:"role,omitempty"` // Functional role only; PM is invite/bootstrap-only.
+	OrganizationName string `json:"organization_name,omitempty"`
 }
 
 // UserLoginRequest is the payload to login
@@ -28,8 +29,22 @@ type UserLoginRequest struct {
 
 // UserLoginResponse is returned upon successful authentication
 type UserLoginResponse struct {
-	Token string `json:"token"`
-	User  User   `json:"user"`
+	Token          string `json:"token"`
+	User           User   `json:"user"`
+	OrganizationID string `json:"organization_id"`
+}
+
+type InvitationRequest struct {
+	Email          string `json:"email"`
+	ProjectID      string `json:"project_id,omitempty"`
+	ProjectRole    string `json:"project_role"`
+	FunctionalRole string `json:"functional_role,omitempty"`
+}
+
+type InvitationAcceptRequest struct {
+	Token    string `json:"token"`
+	Name     string `json:"name"`
+	Password string `json:"password"`
 }
 
 // Project represents a project container holding multiple modules
@@ -63,7 +78,7 @@ type Module struct {
 type ModuleRequest struct {
 	Name          string `json:"name"`
 	Description   string `json:"description"`
-	Nodes         any    `json:"nodes,omitempty"`         // Raw JSON array
-	Edges         any    `json:"edges,omitempty"`         // Raw JSON array
+	Nodes         any    `json:"nodes,omitempty"` // Raw JSON array
+	Edges         any    `json:"edges,omitempty"` // Raw JSON array
 	SchemaVersion int    `json:"schemaVersion,omitempty"`
 }

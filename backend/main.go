@@ -63,6 +63,10 @@ func main() {
 	// Public routes
 	r.POST("/api/auth/register", handlers.RegisterHandler)
 	r.POST("/api/auth/login", handlers.LoginHandler)
+	r.POST("/api/auth/refresh", handlers.RefreshHandler)
+	r.POST("/api/auth/logout", handlers.LogoutHandler)
+	r.POST("/api/auth/password-reset/request", handlers.PasswordResetRequestHandler)
+	r.POST("/api/invitations/accept", handlers.AcceptInvitationHandler)
 
 	// Protected routes group
 	api := r.Group("/api")
@@ -95,6 +99,7 @@ func main() {
 		api.POST("/users", middleware.RequireRole("pm"), handlers.PostUsersHandler)
 		api.DELETE("/users/:id", middleware.RequireRole("pm"), handlers.DeleteUserHandler)
 		api.GET("/users/dashboard-stats", handlers.UserDashboardStatsHandler)
+		api.POST("/invitations", handlers.CreateInvitationHandler)
 	}
 
 	// Catch-all route to serve compiled static assets from the frontend/dist folder (Production)
