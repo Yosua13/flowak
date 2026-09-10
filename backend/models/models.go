@@ -76,9 +76,18 @@ type Module struct {
 
 // ModuleRequest is the payload to update or create a module
 type ModuleRequest struct {
-	Name          string `json:"name"`
-	Description   string `json:"description"`
-	Nodes         any    `json:"nodes,omitempty"` // Raw JSON array
-	Edges         any    `json:"edges,omitempty"` // Raw JSON array
-	SchemaVersion int    `json:"schemaVersion,omitempty"`
+	Name          string        `json:"name"`
+	Description   string        `json:"description"`
+	Nodes         any           `json:"nodes,omitempty"` // Raw JSON array
+	Edges         any           `json:"edges,omitempty"` // Raw JSON array
+	DeletedNodes  []GraphDelete `json:"deletedNodes,omitempty"`
+	DeletedEdges  []GraphDelete `json:"deletedEdges,omitempty"`
+	SchemaVersion int           `json:"schemaVersion,omitempty"`
+}
+
+// GraphDelete identifies a normalized graph record to tombstone. RowVersion is
+// required for existing records so a stale client cannot delete a newer revision.
+type GraphDelete struct {
+	ID         string `json:"id"`
+	RowVersion int    `json:"rowVersion"`
 }

@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -376,7 +377,7 @@ func CreateProjectModuleHandler(c *gin.Context) {
 				}
 			}
 		}
-		if err := syncModuleGraph(tx, moduleID, syncNodes, syncEdges); err != nil {
+		if err := syncModuleGraph(tx, moduleID, syncNodes, syncEdges, req.DeletedNodes, req.DeletedEdges); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -431,32 +432,6 @@ func UpdateModuleHandler(c *gin.Context) {
 	}
 	defer tx.Rollback()
 
-	if req.Nodes != nil {
-		nodesBytes, err := json.Marshal(req.Nodes)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid nodes format"})
-			return
-		}
-		_, err = tx.Exec("UPDATE modules SET nodes = $1, version = version + 1, updated_by = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3", string(nodesBytes), userID, moduleID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update nodes data"})
-			return
-		}
-	}
-
-	if req.Edges != nil {
-		edgesBytes, err := json.Marshal(req.Edges)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid edges format"})
-			return
-		}
-		_, err = tx.Exec("UPDATE modules SET edges = $1, updated_by = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3", string(edgesBytes), userID, moduleID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update edges data"})
-			return
-		}
-	}
-
 	if req.Name != "" || req.Description != "" {
 		_, err = tx.Exec(`
 			UPDATE modules
@@ -472,9 +447,27 @@ func UpdateModuleHandler(c *gin.Context) {
 		}
 	}
 
-	if req.Nodes != nil || req.Edges != nil {
-		if err := syncModuleGraph(tx, moduleID, req.Nodes, req.Edges); err != nil {
+	if req.Nodes != nil || req.Edges != nil || len(req.DeletedNodes) > 0 || len(req.DeletedEdges) > 0 {
+		if err := syncModuleGraph(tx, moduleID, req.Nodes, req.Edges, req.DeletedNodes, req.DeletedEdges); err != nil {
+			var graphErr *graphSyncError
+			if errors.As(err, &graphErr) {
+				status := http.StatusBadRequest
+				if graphErr.Code == graphConflictCode {
+					status = http.StatusConflict
+				}
+				c.JSON(status, gin.H{"error": graphErr.Message, "error_code": graphErr.Code})
+				return
+			}
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Deprecated compatibility snapshot: normalized workflow tables remain authoritative.
+		nodesJSON, _ := json.Marshal(req.Nodes)
+		edgesJSON, _ := json.Marshal(req.Edges)
+		_, err = tx.Exec("UPDATE modules SET nodes = $1, edges = $2, version = version + 1, updated_by = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $4", string(nodesJSON), string(edgesJSON), userID, moduleID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update graph compatibility snapshot"})
 			return
 		}
 	}
@@ -484,7 +477,15 @@ func UpdateModuleHandler(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Module updated successfully"})
+	graph := models.Module{ID: moduleID}
+	if err := hydrateModuleGraph(&graph); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hydrate updated workflow graph"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true, "message": "Module updated successfully",
+		"nodes": json.RawMessage(graph.Nodes), "edges": json.RawMessage(graph.Edges),
+	})
 }
 
 // DeleteModuleHandler handles DELETE /api/modules/:id
