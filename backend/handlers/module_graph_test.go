@@ -85,6 +85,8 @@ func TestUpsertNodeIsIncrementalAndIdempotent(t *testing.T) {
 	// A zero affected update means the normalized values were unchanged. No DELETE is
 	// expected, which is what preserves comments and other node children.
 	mock.ExpectExec("UPDATE workflow_nodes SET").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT row_version FROM workflow_nodes WHERE id = $1 AND module_id = $2 AND deleted_at IS NULL")).
+		WithArgs("node_1", "mod_1").WillReturnRows(sqlmock.NewRows([]string{"row_version"}).AddRow(3))
 	mock.ExpectCommit()
 
 	if err := upsertNode(tx, "mod_1", "node_1", 0, node, map[string]any{}, nil, nil, 3, true); err != nil {
@@ -117,6 +119,38 @@ func TestUpsertNodeRejectsStaleVersion(t *testing.T) {
 	var graphErr *graphSyncError
 	if !errors.As(err, &graphErr) || graphErr.Code != graphConflictCode {
 		t.Fatalf("expected stable conflict, got %v", err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUpsertNodeDetectsConcurrentVersionChange(t *testing.T) {
+	database, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	mock.ExpectBegin()
+	tx, err := database.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := map[string]any{"id": "node_1", "type": "process", "label": "Changed", "rowVersion": 1}
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT row_version FROM workflow_nodes WHERE id = $1 AND module_id = $2 AND deleted_at IS NULL")).
+		WithArgs("node_1", "mod_1").WillReturnRows(sqlmock.NewRows([]string{"row_version"}).AddRow(1))
+	mock.ExpectExec("UPDATE workflow_nodes SET").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT row_version FROM workflow_nodes WHERE id = $1 AND module_id = $2 AND deleted_at IS NULL")).
+		WithArgs("node_1", "mod_1").WillReturnRows(sqlmock.NewRows([]string{"row_version"}).AddRow(2))
+	mock.ExpectRollback()
+
+	err = upsertNode(tx, "mod_1", "node_1", 0, node, map[string]any{}, nil, nil, 1, true)
+	var graphErr *graphSyncError
+	if !errors.As(err, &graphErr) || graphErr.Code != graphConflictCode {
+		t.Fatalf("expected concurrent conflict, got %v", err)
 	}
 	if err := tx.Rollback(); err != nil {
 		t.Fatal(err)

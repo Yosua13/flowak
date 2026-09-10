@@ -174,8 +174,17 @@ func upsertNode(tx *sql.Tx, moduleID, nodeID string, idx int, node, doc map[stri
 	if err != nil {
 		return err
 	}
-	_, err = result.RowsAffected()
-	return err
+	changed, err := result.RowsAffected()
+	if err != nil || changed > 0 {
+		return err
+	}
+	if err := tx.QueryRow("SELECT row_version FROM workflow_nodes WHERE id = $1 AND module_id = $2 AND deleted_at IS NULL", nodeID, moduleID).Scan(&currentVersion); err != nil {
+		return err
+	}
+	if currentVersion != expectedVersion {
+		return &graphSyncError{Code: graphConflictCode, Message: "node version conflict"}
+	}
+	return nil
 }
 
 func nodeValues(nodeID, moduleID string, idx int, node, doc map[string]any, slaValue, slaUnit any, metadata string, expectedVersion int) []any {
@@ -219,13 +228,26 @@ func upsertEdge(tx *sql.Tx, moduleID, edgeID string, idx int, edge map[string]an
 		return &graphSyncError{Code: graphConflictCode, Message: "edge version conflict"}
 	}
 	values = append(values, expectedVersion)
-	_, err = tx.Exec(`UPDATE workflow_edges SET
+	result, err := tx.Exec(`UPDATE workflow_edges SET
 		from_node_id = $3, to_node_id = $4, label = $5, condition_text = $6, metadata = $7::jsonb, sort_order = $8,
 		row_version = row_version + 1, updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1 AND module_id = $2 AND deleted_at IS NULL AND row_version = $9
 		AND (from_node_id, to_node_id, label, condition_text, metadata, sort_order)
 		IS DISTINCT FROM ($3, $4, $5, $6, $7::jsonb, $8)`, values...)
-	return err
+	if err != nil {
+		return err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil || changed > 0 {
+		return err
+	}
+	if err := tx.QueryRow("SELECT row_version FROM workflow_edges WHERE id = $1 AND module_id = $2 AND deleted_at IS NULL", edgeID, moduleID).Scan(&currentVersion); err != nil {
+		return err
+	}
+	if currentVersion != expectedVersion {
+		return &graphSyncError{Code: graphConflictCode, Message: "edge version conflict"}
+	}
+	return nil
 }
 
 func tombstoneEdges(tx *sql.Tx, moduleID string, deleted []models.GraphDelete) error {
