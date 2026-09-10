@@ -7,6 +7,9 @@ import { create } from 'zustand';
 import { Module, Node, Edge, ID, NodeType, RoleKey, BusinessFacet, Status } from '../domain/types';
 import { canAddEdge, addEdge as domainAddEdge, uid } from '../domain/invariants';
 import { TeamMember } from '../config/seedData';
+import { apiClient } from '../services/apiClient';
+import { saveGraphOptimistically, SaveStatus } from '../services/graphMutation';
+import { persistenceAdapter } from '../infra/persistence';
 
 export type AppView = 'canvas' | 'status' | 'doc' | 'calendar' | 'analytics' | 'kanban' | 'team';
 export type AppScreen = 'login' | 'register' | 'dashboard' | 'workspace';
@@ -56,6 +59,8 @@ interface AppStore {
   teamMembers: TeamMember[];
   projectMembers: TeamMember[];
   dashboardStats: { myTasksCount: number; completionRate: number } | null;
+  saveStatus: SaveStatus;
+  setSaveStatus: (status: SaveStatus) => void;
 
   // Actions - UI/Screen routing
   setScreen: (screen: AppScreen) => void;
@@ -119,7 +124,10 @@ interface AppStore {
   loadDashboardStats: () => Promise<void>;
 }
 
-let saveTimeout: any = null;
+let saveTimeout: ReturnType<typeof setTimeout> | null = null;
+let graphRequest: AbortController | null = null;
+let projectRequest: AbortController | null = null;
+const confirmedGraphs = new Map<ID, Module>();
 
 const debouncedSave = (set: any, get: any) => {
   const { activeId, token } = get();
@@ -180,6 +188,8 @@ export const useStore = create<AppStore>((set, get) => ({
   teamMembers: [],
   projectMembers: [],
   dashboardStats: null,
+  saveStatus: 'idle',
+  setSaveStatus: (saveStatus) => set({ saveStatus }),
   selectedNotif: null,
   notifications: [
     {
@@ -214,10 +224,7 @@ export const useStore = create<AppStore>((set, get) => ({
         });
         await get().loadProjects();
         await get().loadTeamMembers();
-      } catch (err) {
-        get().logoutUser();
-      }
-    } else {
+    } catch {
       set({ screen: 'login' });
     }
   },
@@ -230,6 +237,7 @@ export const useStore = create<AppStore>((set, get) => ({
       } else {
         document.documentElement.classList.remove('dark');
       }
+      persistenceAdapter.savePreferences({ darkMode: mode });
       return { darkMode: mode };
     });
   },
@@ -249,6 +257,7 @@ export const useStore = create<AppStore>((set, get) => ({
         return false;
       }
 
+      apiClient.setToken(data.token);
       localStorage.setItem('flowak_user', JSON.stringify(data.user));
 
       set({
@@ -383,6 +392,8 @@ export const useStore = create<AppStore>((set, get) => ({
     if (!token) return;
 
     if (!projectId) {
+      graphRequest?.abort();
+      projectRequest?.abort();
       set({
         activeProjectId: null,
         modules: [],
@@ -394,8 +405,11 @@ export const useStore = create<AppStore>((set, get) => ({
     }
 
     try {
+      projectRequest?.abort();
+      projectRequest = apiClient.abortable();
       const res = await fetch(`/api/projects/${projectId}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { 'Authorization': `Bearer ${token}` },
+        signal: projectRequest.signal,
       });
       if (res.ok) {
         const data = await res.json();
@@ -406,6 +420,7 @@ export const useStore = create<AppStore>((set, get) => ({
           nodes: typeof m.nodes === 'string' ? JSON.parse(m.nodes) : m.nodes,
           edges: typeof m.edges === 'string' ? JSON.parse(m.edges) : m.edges
         }));
+        parsedModules.forEach((module: Module) => confirmedGraphs.set(module.id, module));
 
         set({
           activeProjectId: projectId,
@@ -527,6 +542,7 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   selectModule: (id) => {
+    graphRequest?.abort();
     set({
       activeId: id,
       selectedNodeId: null,
