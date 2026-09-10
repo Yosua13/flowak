@@ -46,7 +46,9 @@ func TestUnknownProjectRoleHasNoCapabilities(t *testing.T) {
 func TestAuthorizeProjectRejectsCrossTenantIDOR(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	mockDB, mock, err := sqlmock.New()
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer mockDB.Close()
 	previous := db.DB
 	db.DB = mockDB
@@ -59,15 +61,23 @@ func TestAuthorizeProjectRejectsCrossTenantIDOR(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPatch, "/api/modules/module-b", nil)
 	c.Set(string(UserContextKey), "user-a")
 	c.Set(string(OrganizationContextKey), "org-a")
-	if AuthorizeProject(c, "project-b", CapabilityEditGraph) { t.Fatal("cross-tenant project access was allowed") }
-	if w.Code != http.StatusForbidden { t.Fatalf("status = %d, want 403", w.Code) }
-	if err := mock.ExpectationsWereMet(); err != nil { t.Fatal(err) }
+	if AuthorizeProject(c, "project-b", CapabilityEditGraph) {
+		t.Fatal("cross-tenant project access was allowed")
+	}
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", w.Code)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestAuthorizeProjectDeniesViewerGraphUpdate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	mockDB, mock, err := sqlmock.New()
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer mockDB.Close()
 	previous := db.DB
 	db.DB = mockDB
@@ -78,7 +88,13 @@ func TestAuthorizeProjectDeniesViewerGraphUpdate(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPatch, "/api/modules/module-a", nil)
 	c.Set(string(UserContextKey), "viewer")
 	c.Set(string(OrganizationContextKey), "org-a")
-	if AuthorizeProject(c, "project-a", CapabilityEditGraph) { t.Fatal("viewer was allowed to edit graph") }
-	if w.Code != http.StatusForbidden { t.Fatalf("status = %d, want 403", w.Code) }
-	if err := mock.ExpectationsWereMet(); err != nil { t.Fatal(err) }
+	if AuthorizeProject(c, "project-a", CapabilityEditGraph) {
+		t.Fatal("viewer was allowed to edit graph")
+	}
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", w.Code)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
 }
