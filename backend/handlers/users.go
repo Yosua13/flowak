@@ -20,8 +20,17 @@ func GetUsersHandler(c *gin.Context) {
 		return
 	}
 
-	// Fetch all users in the system to list as team contributors
-	rows, err := db.DB.Query("SELECT id, name, email, role FROM users WHERE status = 'active' ORDER BY name ASC")
+	organizationID, ok := c.Get(string(middleware.OrganizationContextKey))
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization access denied"})
+		return
+	}
+	// User pickers are constrained to the active organization, never the
+	// global users table.
+	rows, err := db.DB.Query(`SELECT u.id, u.name, u.email, u.role FROM users u
+		JOIN organization_members om ON om.user_id = u.id
+		WHERE om.organization_id = $1 AND om.status = 'active' AND u.status = 'active'
+		ORDER BY u.name ASC`, organizationID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database query error"})
 		return

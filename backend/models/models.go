@@ -14,10 +14,11 @@ type User struct {
 
 // UserRegisterRequest is the payload to register a new user
 type UserRegisterRequest struct {
-	Name     string `json:"name"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Role     string `json:"role"`
+	Name             string `json:"name"`
+	Email            string `json:"email"`
+	Password         string `json:"password"`
+	Role             string `json:"role,omitempty"` // Functional role only; PM is invite/bootstrap-only.
+	OrganizationName string `json:"organization_name,omitempty"`
 }
 
 // UserLoginRequest is the payload to login
@@ -28,8 +29,22 @@ type UserLoginRequest struct {
 
 // UserLoginResponse is returned upon successful authentication
 type UserLoginResponse struct {
-	Token string `json:"token"`
-	User  User   `json:"user"`
+	Token          string `json:"token"`
+	User           User   `json:"user"`
+	OrganizationID string `json:"organization_id"`
+}
+
+type InvitationRequest struct {
+	Email          string `json:"email"`
+	ProjectID      string `json:"project_id,omitempty"`
+	ProjectRole    string `json:"project_role"`
+	FunctionalRole string `json:"functional_role,omitempty"`
+}
+
+type InvitationAcceptRequest struct {
+	Token    string `json:"token"`
+	Name     string `json:"name"`
+	Password string `json:"password"`
 }
 
 // Project represents a project container holding multiple modules
@@ -61,9 +76,18 @@ type Module struct {
 
 // ModuleRequest is the payload to update or create a module
 type ModuleRequest struct {
-	Name          string `json:"name"`
-	Description   string `json:"description"`
-	Nodes         any    `json:"nodes,omitempty"`         // Raw JSON array
-	Edges         any    `json:"edges,omitempty"`         // Raw JSON array
-	SchemaVersion int    `json:"schemaVersion,omitempty"`
+	Name          string        `json:"name"`
+	Description   string        `json:"description"`
+	Nodes         any           `json:"nodes,omitempty"` // Raw JSON array
+	Edges         any           `json:"edges,omitempty"` // Raw JSON array
+	DeletedNodes  []GraphDelete `json:"deletedNodes,omitempty"`
+	DeletedEdges  []GraphDelete `json:"deletedEdges,omitempty"`
+	SchemaVersion int           `json:"schemaVersion,omitempty"`
+}
+
+// GraphDelete identifies a normalized graph record to tombstone. RowVersion is
+// required for existing records so a stale client cannot delete a newer revision.
+type GraphDelete struct {
+	ID         string `json:"id"`
+	RowVersion int    `json:"rowVersion"`
 }

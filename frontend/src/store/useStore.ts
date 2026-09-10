@@ -129,23 +129,41 @@ let graphRequest: AbortController | null = null;
 let projectRequest: AbortController | null = null;
 const confirmedGraphs = new Map<ID, Module>();
 
-const debouncedSave = (get: any) => {
-  const { activeId, modules, token } = get();
+const debouncedSave = (set: any, get: any) => {
+  const { activeId, token } = get();
   if (!activeId || !token) return;
-  const activeMod = modules.find((m: any) => m.id === activeId);
-  if (!activeMod) return;
-
-  if (saveTimeout) clearTimeout(saveTimeout);
-  saveTimeout = setTimeout(async () => {
-    graphRequest?.abort();
-    graphRequest = apiClient.abortable();
-    get().setSaveStatus?.('saving');
-    const previous = confirmedGraphs.get(activeId);
-    const status = await saveGraphOptimistically(activeMod, get().activeProjectId, () => {
-      if (previous) useStore.setState({ modules: get().modules.map((module: Module) => module.id === activeId ? previous : module) });
-    }, graphRequest.signal);
-    if (status === 'saved') confirmedGraphs.set(activeId, activeMod);
-    useStore.setState({ saveStatus: status });
+	if (saveTimeout) clearTimeout(saveTimeout);
+	saveTimeout = setTimeout(async () => {
+		const latest = get();
+		const activeMod = latest.modules.find((m: any) => m.id === activeId);
+		if (!activeMod) return;
+    try {
+		const response = await fetch(`/api/modules/${activeId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          nodes: activeMod.nodes,
+          edges: activeMod.edges,
+          deletedNodes: activeMod.deletedNodes || [],
+          deletedEdges: activeMod.deletedEdges || []
+        })
+      });
+		if (!response.ok) {
+			console.error('Failed to sync canvas updates to server:', await response.text());
+			return;
+		}
+		const result = await response.json();
+		if (Array.isArray(result.nodes) && Array.isArray(result.edges)) {
+			set((state: any) => ({ modules: state.modules.map((module: Module) => module.id === activeId
+				? { ...module, nodes: result.nodes, edges: result.edges, deletedNodes: [], deletedEdges: [] }
+				: module) }));
+		}
+    } catch (err) {
+      console.error('Failed to sync canvas updates to server:', err);
+    }
   }, 600);
 };
 
@@ -190,15 +208,17 @@ export const useStore = create<AppStore>((set, get) => ({
 
   initializeStore: async () => {
     document.documentElement.classList.add('dark');
-    const preferences = persistenceAdapter.loadPreferences();
-    if (!preferences.darkMode) document.documentElement.classList.remove('dark');
-    set({ darkMode: preferences.darkMode });
-    try {
-        const session = await apiClient.post<{ token: string; user: AppStore['currentUser'] }>('/auth/refresh');
-        apiClient.setToken(session.token);
+    const storedUser = localStorage.getItem('flowak_user');
+
+    if (storedUser) {
+      try {
+        const refresh = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' });
+        if (!refresh.ok) throw new Error('session expired');
+        const session = await refresh.json();
+        const parsedUser = session.user;
         set({
           token: session.token,
-          currentUser: session.user,
+          currentUser: parsedUser,
           isAuthenticated: true,
           screen: 'dashboard'
         });
@@ -238,6 +258,7 @@ export const useStore = create<AppStore>((set, get) => ({
       }
 
       apiClient.setToken(data.token);
+      localStorage.setItem('flowak_user', JSON.stringify(data.user));
 
       set({
         token: data.token,
@@ -280,8 +301,8 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   logoutUser: () => {
-    void apiClient.post('/auth/logout').catch(() => undefined);
-    apiClient.setToken(null);
+    void fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+    localStorage.removeItem('flowak_user');
 
     set({
       token: null,
@@ -616,7 +637,7 @@ export const useStore = create<AppStore>((set, get) => ({
     });
 
     set({ modules: updated, selectedNodeId: newNode.id });
-    debouncedSave(get);
+    debouncedSave(set, get);
 
     get().addNotification(
       'Langkah Baru Ditambahkan',
@@ -640,7 +661,7 @@ export const useStore = create<AppStore>((set, get) => ({
     });
 
     set({ modules: updated });
-    debouncedSave(get);
+    debouncedSave(set, get);
   },
 
   updateNode: (id, patch) => {
@@ -658,7 +679,7 @@ export const useStore = create<AppStore>((set, get) => ({
     });
 
     set({ modules: updated });
-    debouncedSave(get);
+    debouncedSave(set, get);
   },
 
   updateDoc: (id, fields) => {
@@ -676,7 +697,7 @@ export const useStore = create<AppStore>((set, get) => ({
     });
 
     set({ modules: updated });
-    debouncedSave(get);
+    debouncedSave(set, get);
   },
 
   updateRole: (id, role, patch) => {
@@ -725,7 +746,7 @@ export const useStore = create<AppStore>((set, get) => ({
     }
 
     set({ modules: updated });
-    debouncedSave(get);
+    debouncedSave(set, get);
   },
 
   deleteNode: (id) => {
@@ -735,7 +756,8 @@ export const useStore = create<AppStore>((set, get) => ({
     const activeMod = modules.find((m) => m.id === activeId);
     if (!activeMod) return;
 
-    const deletingNodeName = activeMod.nodes.find((n) => n.id === id)?.label || 'Langkah';
+    const deletingNode = activeMod.nodes.find((n) => n.id === id);
+    const deletingNodeName = deletingNode?.label || 'Langkah';
     
     // Delete logic helper
     const filteredNodes = activeMod.nodes.filter((n) => n.id !== id);
@@ -744,7 +766,12 @@ export const useStore = create<AppStore>((set, get) => ({
     const updatedMod = {
       ...activeMod,
       nodes: filteredNodes,
-      edges: filteredEdges
+      edges: filteredEdges,
+      deletedNodes: deletingNode?.rowVersion ? [...(activeMod.deletedNodes || []), { id, rowVersion: deletingNode.rowVersion }] : activeMod.deletedNodes,
+      deletedEdges: [...(activeMod.deletedEdges || []), ...activeMod.edges
+        .filter((edge) => edge.from === id || edge.to === id)
+        .filter((edge) => edge.rowVersion)
+        .map((edge) => ({ id: edge.id, rowVersion: edge.rowVersion! }))]
     };
 
     const updated = modules.map((m) => (m.id === activeId ? updatedMod : m));
@@ -754,7 +781,7 @@ export const useStore = create<AppStore>((set, get) => ({
       selectedNodeId: null,
       connectFrom: null,
     });
-    debouncedSave(get);
+    debouncedSave(set, get);
 
     get().addNotification(
       'Hapus Langkah Alur',
@@ -802,7 +829,7 @@ export const useStore = create<AppStore>((set, get) => ({
       modules: updated,
       connectFrom: null,
     });
-    debouncedSave(get);
+    debouncedSave(set, get);
 
     get().addNotification(
       'Koneksi Berhasil',
@@ -815,18 +842,20 @@ export const useStore = create<AppStore>((set, get) => ({
     const { activeId, modules } = get();
     if (!activeId) return;
 
+    const deletedEdge = modules.find((m) => m.id === activeId)?.edges.find((edge) => edge.id === id);
     const updated = modules.map((m) => {
       if (m.id === activeId) {
         return {
           ...m,
           edges: m.edges.filter((e) => e.id !== id),
+          deletedEdges: deletedEdge?.rowVersion ? [...(m.deletedEdges || []), { id, rowVersion: deletedEdge.rowVersion }] : m.deletedEdges,
         };
       }
       return m;
     });
 
     set({ modules: updated });
-    debouncedSave(get);
+    debouncedSave(set, get);
 
     get().addNotification(
       'Koneksi Dihapus',
@@ -850,7 +879,7 @@ export const useStore = create<AppStore>((set, get) => ({
     });
 
     set({ modules: updated });
-    debouncedSave(get);
+    debouncedSave(set, get);
   },
 
   selectNode: (id) => {
@@ -922,7 +951,7 @@ export const useStore = create<AppStore>((set, get) => ({
     });
 
     set({ modules: updated, activeId: moduleId });
-    debouncedSave(get);
+    debouncedSave(set, get);
 
     get().addNotification(
       'Alur AI Dimuat',

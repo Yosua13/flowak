@@ -79,6 +79,7 @@ export interface Node {
     frontend?: FrontendFacet;
     backend?: BackendFacet;
   };
+  rowVersion?: number;
 }
 
 export interface Edge {
@@ -86,6 +87,12 @@ export interface Edge {
   from: ID;
   to: ID;
   label?: string;
+  rowVersion?: number;
+}
+
+export interface GraphDelete {
+  id: ID;
+  rowVersion: number;
 }
 
 export interface Module {
@@ -96,4 +103,6 @@ export interface Module {
   edges: Edge[];
   schemaVersion: number;
   rowVersion?: number;
+  deletedNodes?: GraphDelete[];
+  deletedEdges?: GraphDelete[];
 }
