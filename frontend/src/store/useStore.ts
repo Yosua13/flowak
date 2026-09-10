@@ -126,6 +126,8 @@ interface AppStore {
 
 let saveTimeout: ReturnType<typeof setTimeout> | null = null;
 let graphRequest: AbortController | null = null;
+let projectRequest: AbortController | null = null;
+const confirmedGraphs = new Map<ID, Module>();
 
 const debouncedSave = (get: any) => {
   const { activeId, modules, token } = get();
@@ -138,10 +140,11 @@ const debouncedSave = (get: any) => {
     graphRequest?.abort();
     graphRequest = apiClient.abortable();
     get().setSaveStatus?.('saving');
-    const previous = modules.find((module: Module) => module.id === activeId);
+    const previous = confirmedGraphs.get(activeId);
     const status = await saveGraphOptimistically(activeMod, get().activeProjectId, () => {
       if (previous) useStore.setState({ modules: get().modules.map((module: Module) => module.id === activeId ? previous : module) });
     }, graphRequest.signal);
+    if (status === 'saved') confirmedGraphs.set(activeId, activeMod);
     useStore.setState({ saveStatus: status });
   }, 600);
 };
@@ -369,6 +372,7 @@ export const useStore = create<AppStore>((set, get) => ({
 
     if (!projectId) {
       graphRequest?.abort();
+      projectRequest?.abort();
       set({
         activeProjectId: null,
         modules: [],
@@ -380,8 +384,11 @@ export const useStore = create<AppStore>((set, get) => ({
     }
 
     try {
+      projectRequest?.abort();
+      projectRequest = apiClient.abortable();
       const res = await fetch(`/api/projects/${projectId}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { 'Authorization': `Bearer ${token}` },
+        signal: projectRequest.signal,
       });
       if (res.ok) {
         const data = await res.json();
@@ -392,6 +399,7 @@ export const useStore = create<AppStore>((set, get) => ({
           nodes: typeof m.nodes === 'string' ? JSON.parse(m.nodes) : m.nodes,
           edges: typeof m.edges === 'string' ? JSON.parse(m.edges) : m.edges
         }));
+        parsedModules.forEach((module: Module) => confirmedGraphs.set(module.id, module));
 
         set({
           activeProjectId: projectId,
