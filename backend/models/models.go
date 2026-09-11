@@ -91,3 +91,66 @@ type GraphDelete struct {
 	ID         string `json:"id"`
 	RowVersion int    `json:"rowVersion"`
 }
+
+// WorkItem is an execution unit and is deliberately separate from graph readiness facets.
+type WorkItem struct {
+	ID            string     `json:"id"`
+	Key           string     `json:"key"`
+	ProjectID     string     `json:"project_id"`
+	ModuleID      *string    `json:"module_id,omitempty"`
+	NodeID        *string    `json:"node_id,omitempty"`
+	FacetKey      *string    `json:"facet_key,omitempty"`
+	ParentID      *string    `json:"parent_id,omitempty"`
+	Type          string     `json:"type"`
+	Title         string     `json:"title"`
+	Description   *string    `json:"description,omitempty"`
+	Priority      string     `json:"priority"`
+	Points        *int       `json:"points,omitempty"`
+	Status        string     `json:"status"`
+	AssigneeID    *string    `json:"assignee_id,omitempty"`
+	ReporterID    string     `json:"reporter_id"`
+	StartDate     *time.Time `json:"start_date,omitempty"`
+	DueDate       *time.Time `json:"due_date,omitempty"`
+	BlockedReason *string    `json:"blocked_reason,omitempty"`
+	Resolution    *string    `json:"resolution,omitempty"`
+	RowVersion    int        `json:"row_version"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+}
+
+type WorkItemRequest struct {
+	ModuleID      *string `json:"module_id,omitempty"`
+	NodeID        *string `json:"node_id,omitempty"`
+	FacetKey      *string `json:"facet_key,omitempty"`
+	ParentID      *string `json:"parent_id,omitempty"`
+	Type          string  `json:"type"`
+	Title         string  `json:"title"`
+	Description   *string `json:"description,omitempty"`
+	Priority      string  `json:"priority,omitempty"`
+	Points        *int    `json:"points,omitempty"`
+	Status        string  `json:"status,omitempty"`
+	AssigneeID    *string `json:"assignee_id,omitempty"`
+	StartDate     *string `json:"start_date,omitempty"`
+	DueDate       *string `json:"due_date,omitempty"`
+	BlockedReason *string `json:"blocked_reason,omitempty"`
+	Resolution    *string `json:"resolution,omitempty"`
+	RowVersion    int     `json:"row_version"`
+}
+
+type WorkItemTransitionRequest struct {
+	Status     string `json:"status"`
+	Note       string `json:"note,omitempty"`
+	Resolution string `json:"resolution,omitempty"`
+	RowVersion int    `json:"row_version"`
+}
+
+type CommentRequest struct {
+	Body     string   `json:"body"`
+	ParentID *string  `json:"parent_id,omitempty"`
+	Mentions []string `json:"mentions,omitempty"`
+}
+
+type CommentUpdateRequest struct {
+	Body     *string `json:"body,omitempty"`
+	Resolved *bool   `json:"resolved,omitempty"`
+}

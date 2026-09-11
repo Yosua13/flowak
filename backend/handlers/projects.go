@@ -100,6 +100,7 @@ func CreateProjectHandler(c *gin.Context) {
 	}
 
 	projectID := "proj_" + GenerateUUID()
+	projectPrefix := "P" + strings.ToUpper(strings.ReplaceAll(GenerateUUID()[:8], "-", ""))
 
 	// Start a transaction to insert both project and a default module
 	tx, err := db.DB.Begin()
@@ -109,8 +110,8 @@ func CreateProjectHandler(c *gin.Context) {
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec("INSERT INTO projects (id, name, description, owner_id, organization_id) VALUES ($1, $2, $3, $4, $5)",
-		projectID, name, description, userID, organizationID)
+	_, err = tx.Exec("INSERT INTO projects (id, name, description, owner_id, organization_id, work_item_prefix) VALUES ($1, $2, $3, $4, $5, $6)",
+		projectID, name, description, userID, organizationID, projectPrefix)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create project record"})
 		return
