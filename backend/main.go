@@ -97,6 +97,7 @@ func main() {
 		api.PATCH("/work-items/:key", handlers.UpdateWorkItemHandler)
 		api.POST("/work-items/:key/transitions", handlers.TransitionWorkItemHandler)
 		api.POST("/work-items/:key/comments", handlers.CreateWorkItemCommentHandler)
+		api.GET("/work-items/:key/comments", handlers.ListWorkItemCommentsHandler)
 		api.GET("/nodes/:id/comments", handlers.ListNodeCommentsHandler)
 		api.POST("/nodes/:id/comments", handlers.CreateNodeCommentHandler)
 		api.PATCH("/comments/:id", handlers.UpdateCommentHandler)

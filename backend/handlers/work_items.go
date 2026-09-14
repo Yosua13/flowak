@@ -495,6 +495,40 @@ func CreateWorkItemCommentHandler(c *gin.Context) {
 	item, _ := getWorkItem(c.Param("key"))
 	createComment(c, projectID, "", item.ID)
 }
+
+func ListWorkItemCommentsHandler(c *gin.Context) {
+	item, err := getWorkItem(c.Param("key"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "work item not found"})
+		return
+	}
+	if !middleware.AuthorizeProject(c, item.ProjectID, middleware.CapabilityView) {
+		return
+	}
+	rows, err := db.DB.Query(`SELECT id,parent_id,author_id,body,mentions,resolved_at,created_at,updated_at FROM comments WHERE work_item_id=$1 AND deleted_at IS NULL ORDER BY created_at`, item.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list comments"})
+		return
+	}
+	defer rows.Close()
+	comments := []gin.H{}
+	for rows.Next() {
+		var id, author, body, mentions string
+		var parent *string
+		var resolved *time.Time
+		var created, updated time.Time
+		if err := rows.Scan(&id, &parent, &author, &body, &mentions, &resolved, &created, &updated); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse comments"})
+			return
+		}
+		comments = append(comments, gin.H{"id": id, "parent_id": parent, "author_id": author, "body": body, "mentions": json.RawMessage(mentions), "resolved_at": resolved, "created_at": created, "updated_at": updated})
+	}
+	if err := rows.Err(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list comments"})
+		return
+	}
+	c.JSON(http.StatusOK, comments)
+}
 func ListNodeCommentsHandler(c *gin.Context) {
 	nodeID := c.Param("id")
 	var projectID string
