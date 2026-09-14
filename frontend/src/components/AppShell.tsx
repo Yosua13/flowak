@@ -22,22 +22,28 @@ import { Loader2, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function AppShell() {
-  const { screen, view, activeProjectId, activeId, selectedNodeId, initializeStore, selectProject, selectModule, selectNode, selectedNotif, setSelectedNotif } = useStore();
+  const { screen, view, activeProjectId, activeId, selectedNodeId, selectedWorkItemKey, initializeStore, selectProject, selectModule, selectNode, selectWorkItem, setView, selectedNotif, setSelectedNotif } = useStore();
 
   useEffect(() => {
     const restoreSharedDetail = async () => {
       const params = new URLSearchParams(window.location.search);
+      const workItemPath = window.location.pathname.match(/^\/projects\/([^/]+)\/work-items\/([^/]+)\/?$/);
       await initializeStore();
-      const projectId = params.get('project');
+      const projectId = workItemPath ? decodeURIComponent(workItemPath[1]) : params.get('project');
       const moduleId = params.get('module');
       const nodeId = params.get('node');
+      const workItemKey = workItemPath ? decodeURIComponent(workItemPath[2]) : params.get('workItem');
       if (!projectId) return;
       await selectProject(projectId);
       if (moduleId) selectModule(moduleId);
       if (nodeId) selectNode(nodeId);
+      if (workItemKey) {
+        setView('kanban');
+        selectWorkItem(workItemKey);
+      }
     };
     void restoreSharedDetail();
-  }, [initializeStore, selectModule, selectNode, selectProject]);
+  }, [initializeStore, selectModule, selectNode, selectProject, selectWorkItem, setView]);
 
   useEffect(() => {
     let path = '/';
@@ -78,9 +84,14 @@ export default function AppShell() {
       params.set('module', activeId);
       params.set('node', selectedNodeId);
     }
+    if (selectedWorkItemKey && activeProjectId) {
+      path = `/projects/${encodeURIComponent(activeProjectId)}/work-items/${encodeURIComponent(selectedWorkItemKey)}/`;
+      params.delete('project');
+      params.delete('workItem');
+    }
     const newUrl = `${window.location.origin}${path}${params.size ? `?${params.toString()}` : ''}`;
     window.history.pushState({ screen, view }, '', newUrl);
-  }, [screen, view, activeProjectId, activeId, selectedNodeId]);
+  }, [screen, view, activeProjectId, activeId, selectedNodeId, selectedWorkItemKey]);
 
   // Routing based on screen state
   if (screen === 'login') {

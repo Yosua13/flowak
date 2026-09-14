@@ -153,7 +153,10 @@ export interface WorkItem {
   assignee_id?: ID;
   reporter_id: ID;
   row_version: number;
+  start_date?: string;
   due_date?: string;
+  blocked_reason?: string;
+  resolution?: string;
   created_at?: string;
   updated_at?: string;
 }

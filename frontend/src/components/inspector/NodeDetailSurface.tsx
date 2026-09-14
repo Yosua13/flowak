@@ -82,7 +82,7 @@ export default function NodeDetailSurface({ node, module, mode, onClose, onModeC
         return;
       }
       if (event.key !== 'Tab' || mode === 'drawer' || !surfaceRef.current) return;
-      const focusable = Array.from(surfaceRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href]'));
+      const focusable = Array.from(surfaceRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href]')) as HTMLElement[];
       if (!focusable.length) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
