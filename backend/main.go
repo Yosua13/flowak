@@ -89,6 +89,17 @@ func main() {
 		api.PUT("/modules/:id", handlers.UpdateModuleHandler)
 		api.DELETE("/modules/:id", handlers.DeleteModuleHandler)
 
+		// Work items, comments, and execution history
+		api.GET("/projects/:id/work-items", handlers.ListWorkItemsHandler)
+		api.POST("/projects/:id/work-items", handlers.CreateWorkItemHandler)
+		api.GET("/work-items/:key", handlers.GetWorkItemHandler)
+		api.PATCH("/work-items/:key", handlers.UpdateWorkItemHandler)
+		api.POST("/work-items/:key/transitions", handlers.TransitionWorkItemHandler)
+		api.POST("/work-items/:key/comments", handlers.CreateWorkItemCommentHandler)
+		api.GET("/nodes/:id/comments", handlers.ListNodeCommentsHandler)
+		api.POST("/nodes/:id/comments", handlers.CreateNodeCommentHandler)
+		api.PATCH("/comments/:id", handlers.UpdateCommentHandler)
+
 		// AI Proxies
 		api.POST("/ai/generate-flow", handlers.AiGenerateFlowHandler)
 		api.POST("/ai/mock-payload", handlers.AiMockPayloadHandler)

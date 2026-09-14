@@ -95,6 +95,28 @@ export interface GraphDelete {
   rowVersion: number;
 }
 
+export type WorkItemType = 'Story' | 'Task' | 'Bug' | 'Review' | 'Research' | 'Subtask';
+export type WorkItemStatus = 'Backlog' | 'Ready' | 'In Progress' | 'In Review' | 'Blocked' | 'Done' | 'Canceled';
+
+export interface WorkItem {
+  id: ID;
+  key: string;
+  project_id: ID;
+  module_id?: ID;
+  node_id?: ID;
+  facet_key?: string;
+  parent_id?: ID;
+  type: WorkItemType;
+  title: string;
+  description?: string;
+  priority: 'low' | 'medium' | 'high' | 'critical';
+  points?: 1 | 2 | 3 | 5 | 8 | 13;
+  status: WorkItemStatus;
+  assignee_id?: ID;
+  reporter_id: ID;
+  row_version: number;
+}
+
 export interface Module {
   id: ID;
   name: string;
