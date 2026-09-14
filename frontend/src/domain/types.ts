@@ -153,6 +153,19 @@ export interface WorkItem {
   assignee_id?: ID;
   reporter_id: ID;
   row_version: number;
+  due_date?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface NodeComment {
+  id: ID;
+  parent_id?: ID;
+  author_id: ID;
+  body: string;
+  resolved_at?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Module {

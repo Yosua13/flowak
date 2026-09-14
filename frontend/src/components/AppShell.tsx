@@ -22,11 +22,22 @@ import { Loader2, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function AppShell() {
-  const { screen, view, selectedNodeId, initializeStore, selectedNotif, setSelectedNotif } = useStore();
+  const { screen, view, activeProjectId, activeId, selectedNodeId, initializeStore, selectProject, selectModule, selectNode, selectedNotif, setSelectedNotif } = useStore();
 
   useEffect(() => {
-    initializeStore();
-  }, [initializeStore]);
+    const restoreSharedDetail = async () => {
+      const params = new URLSearchParams(window.location.search);
+      await initializeStore();
+      const projectId = params.get('project');
+      const moduleId = params.get('module');
+      const nodeId = params.get('node');
+      if (!projectId) return;
+      await selectProject(projectId);
+      if (moduleId) selectModule(moduleId);
+      if (nodeId) selectNode(nodeId);
+    };
+    void restoreSharedDetail();
+  }, [initializeStore, selectModule, selectNode, selectProject]);
 
   useEffect(() => {
     let path = '/';
@@ -61,9 +72,15 @@ export default function AppShell() {
           break;
       }
     }
-    const newUrl = `${window.location.origin}${path}`;
+    const params = new URLSearchParams();
+    if (selectedNodeId && activeProjectId && activeId) {
+      params.set('project', activeProjectId);
+      params.set('module', activeId);
+      params.set('node', selectedNodeId);
+    }
+    const newUrl = `${window.location.origin}${path}${params.size ? `?${params.toString()}` : ''}`;
     window.history.pushState({ screen, view }, '', newUrl);
-  }, [screen, view]);
+  }, [screen, view, activeProjectId, activeId, selectedNodeId]);
 
   // Routing based on screen state
   if (screen === 'login') {
@@ -120,7 +137,7 @@ export default function AppShell() {
 
       {/* Inspector - right zone (reveals only if a node is focused in Canvas) */}
       {selectedNodeId && (
-        <div className="print:hidden">
+        <div className="print:hidden max-[768px]:fixed max-[768px]:inset-0 max-[768px]:z-[100]">
           <Inspector />
         </div>
       )}

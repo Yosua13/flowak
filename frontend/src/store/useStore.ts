@@ -61,6 +61,8 @@ interface AppStore {
   dashboardStats: { myTasksCount: number; completionRate: number } | null;
   saveStatus: SaveStatus;
   setSaveStatus: (status: SaveStatus) => void;
+  retryActiveModuleSave: () => Promise<void>;
+  reloadActiveProject: () => Promise<void>;
 
   // Actions - UI/Screen routing
   setScreen: (screen: AppScreen) => void;
@@ -129,41 +131,55 @@ let graphRequest: AbortController | null = null;
 let projectRequest: AbortController | null = null;
 const confirmedGraphs = new Map<ID, Module>();
 
+const persistActiveModule = async (set: any, get: any, moduleId: ID) => {
+  const latest = get();
+  const activeMod = latest.modules.find((module: Module) => module.id === moduleId);
+  if (!activeMod || !latest.token) return;
+
+  set({ saveStatus: 'saving' });
+  try {
+    const response = await fetch(`/api/modules/${moduleId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${latest.token}`
+      },
+      body: JSON.stringify({
+        nodes: activeMod.nodes,
+        edges: activeMod.edges,
+        deletedNodes: activeMod.deletedNodes || [],
+        deletedEdges: activeMod.deletedEdges || []
+      })
+    });
+    if (!response.ok) {
+      set({ saveStatus: response.status === 409 ? 'conflict' : 'failed' });
+      console.error('Failed to sync canvas updates to server:', await response.text());
+      return;
+    }
+    const result = await response.json();
+    if (Array.isArray(result.nodes) && Array.isArray(result.edges)) {
+      set((state: any) => ({
+        modules: state.modules.map((module: Module) => module.id === moduleId
+          ? { ...module, nodes: result.nodes, edges: result.edges, deletedNodes: [], deletedEdges: [] }
+          : module),
+        saveStatus: 'saved'
+      }));
+    } else {
+      set({ saveStatus: 'saved' });
+    }
+  } catch (err) {
+    set({ saveStatus: typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'failed' });
+    console.error('Failed to sync canvas updates to server:', err);
+  }
+};
+
 const debouncedSave = (set: any, get: any) => {
   const { activeId, token } = get();
   if (!activeId || !token) return;
+  set({ saveStatus: 'saving' });
 	if (saveTimeout) clearTimeout(saveTimeout);
 	saveTimeout = setTimeout(async () => {
-		const latest = get();
-		const activeMod = latest.modules.find((m: any) => m.id === activeId);
-		if (!activeMod) return;
-    try {
-		const response = await fetch(`/api/modules/${activeId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          nodes: activeMod.nodes,
-          edges: activeMod.edges,
-          deletedNodes: activeMod.deletedNodes || [],
-          deletedEdges: activeMod.deletedEdges || []
-        })
-      });
-		if (!response.ok) {
-			console.error('Failed to sync canvas updates to server:', await response.text());
-			return;
-		}
-		const result = await response.json();
-		if (Array.isArray(result.nodes) && Array.isArray(result.edges)) {
-			set((state: any) => ({ modules: state.modules.map((module: Module) => module.id === activeId
-				? { ...module, nodes: result.nodes, edges: result.edges, deletedNodes: [], deletedEdges: [] }
-				: module) }));
-		}
-    } catch (err) {
-      console.error('Failed to sync canvas updates to server:', err);
-    }
+		await persistActiveModule(set, get, activeId);
   }, 600);
 };
 
@@ -190,6 +206,14 @@ export const useStore = create<AppStore>((set, get) => ({
   dashboardStats: null,
   saveStatus: 'idle',
   setSaveStatus: (saveStatus) => set({ saveStatus }),
+  retryActiveModuleSave: async () => {
+    const { activeId } = get();
+    if (activeId) await persistActiveModule(set, get, activeId);
+  },
+  reloadActiveProject: async () => {
+    const { activeProjectId } = get();
+    if (activeProjectId) await get().selectProject(activeProjectId);
+  },
   selectedNotif: null,
   notifications: [
     {
