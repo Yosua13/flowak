@@ -20,18 +20,20 @@ export default function BisnisTab({ node }: BisnisTabProps) {
   };
 
   const fields: { id: keyof BusinessFacet; label: string; placeholder: string; type: 'text' | 'textarea' }[] = [
+    { id: 'outcome', label: 'Outcome', placeholder: 'Nilai bisnis yang dihasilkan...', type: 'textarea' },
     { id: 'actor', label: 'Aktor Pelaku', placeholder: 'Karyawan, HR, Admin...', type: 'text' },
     { id: 'trigger', label: 'Pemicu Langkah', placeholder: 'Submit form, jadwal otomatis, approval diterima...', type: 'text' },
     { id: 'system', label: 'Sistem Terkait', placeholder: 'FlowakPortal, MySQL Server, Oracle...', type: 'text' },
     { id: 'sla', label: 'Resolusi SLA', placeholder: 'Instan, 2 jam, 1 hari...', type: 'text' },
     { id: 'priority', label: 'Prioritas', placeholder: 'low, medium, high, critical...', type: 'text' },
     { id: 'riskLevel', label: 'Level Risiko', placeholder: 'low, medium, high...', type: 'text' },
+    { id: 'preconditions', label: 'Prasyarat', placeholder: 'Kondisi sebelum proses dapat dimulai...', type: 'textarea' },
     { id: 'input', label: 'Kebutuhan Input Data', placeholder: 'Formulir data karyawan, id pengajuan...', type: 'textarea' },
     { id: 'process', label: 'Uraian Proses Bisnis', placeholder: 'Mengecek jatah saldo cuti...', type: 'textarea' },
     { id: 'output', label: 'Hasil Output Data', placeholder: 'Konfirmasi kelulusan, penolakan...', type: 'textarea' },
-    { id: 'rules', label: 'Aturan Bisnis (Aturan Validasi/Konsistensi)', placeholder: 'Sisa cuti harus > 0...', type: 'textarea' },
-    { id: 'exceptionPath', label: 'Alur Pengecualian / Gagal', placeholder: 'Jika data tidak valid, arahkan ke revisi atau penolakan...', type: 'textarea' },
+    { id: 'exceptionPaths', label: 'Alur Pengecualian / Gagal', placeholder: 'Jika data tidak valid, arahkan ke revisi atau penolakan...', type: 'textarea' },
     { id: 'acceptanceCriteria', label: 'Kriteria Selesai', placeholder: 'Kondisi yang harus terpenuhi agar langkah dianggap siap.', type: 'textarea' },
+    { id: 'referenceLinks', label: 'Reference links', placeholder: 'Tautan dokumen atau evidence terkait...', type: 'textarea' },
   ];
 
   return (
@@ -54,14 +56,14 @@ export default function BisnisTab({ node }: BisnisTabProps) {
              {f.type === 'text' ? (
                <input
                  type="text"
-                 value={doc[f.id] || ''}
+                value={(doc[f.id] as string) || ''}
                  onChange={(e) => handleFieldChange(f.id, e.target.value)}
                  placeholder={f.placeholder}
                  className="w-full text-xs border border-white/5 rounded-xl px-3 py-2 bg-[#1A1A1D] text-white outline-none focus:ring-1 focus:ring-[#C5A267] transition font-medium"
                />
              ) : (
                <textarea
-                 value={doc[f.id] || ''}
+                value={(doc[f.id] as string) || ''}
                  onChange={(e) => handleFieldChange(f.id, e.target.value)}
                  placeholder={f.placeholder}
                  rows={2}
@@ -69,7 +71,14 @@ export default function BisnisTab({ node }: BisnisTabProps) {
                />
              )}
            </div>
-         ))}
+        ))}
+
+        <div className="space-y-1">
+          <label className="block text-[9px] font-bold text-gray-400 font-mono uppercase tracking-wider">Aturan bisnis (satu aturan per baris)</label>
+          <textarea value={(doc.rules || []).map((rule) => `${rule.code || ''} [${rule.severity || 'medium'}] ${rule.description}`).join('\n')}
+            onChange={(e) => updateDoc(node.id, { rules: e.target.value.split('\n').filter(Boolean).map((line) => ({ description: line })) })} placeholder="CUTI-001 [high] Saldo cuti harus cukup" rows={3}
+            className="w-full text-xs border border-white/5 rounded-xl px-3 py-2 bg-[#1A1A1D] text-white outline-none focus:ring-1 focus:ring-[#C5A267] h-20 resize-none" />
+        </div>
        </div>
     </div>
   );

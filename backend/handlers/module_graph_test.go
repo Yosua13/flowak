@@ -224,3 +224,22 @@ func TestRowVersion(t *testing.T) {
 		t.Fatal("missing row version must not be accepted for an existing record")
 	}
 }
+
+func TestBusinessSpecificationValidation(t *testing.T) {
+	if err := validateBusinessFacet(map[string]any{"priority": "urgent"}); err == nil {
+		t.Fatal("invalid priority must be rejected")
+	}
+	if err := validateBusinessFacet(map[string]any{"priority": "high", "triggerType": "event"}); err != nil {
+		t.Fatalf("valid business facet rejected: %v", err)
+	}
+	if err := validateRoleURLs(map[string]any{"uiux": map[string]any{"figmaFrameUrl": "figma.com/file/1"}}); err == nil {
+		t.Fatal("relative evidence URL must be rejected")
+	}
+}
+
+func TestRulesTextAcceptsStructuredRules(t *testing.T) {
+	doc := map[string]any{"rules": []map[string]any{{"code": "LEAVE-1", "description": "Balance is sufficient"}}}
+	if got := rulesText(doc); got != "Balance is sufficient" {
+		t.Fatalf("structured rules were not converted: %q", got)
+	}
+}

@@ -4,9 +4,9 @@
  */
 
 import React from 'react';
-import { Node, Status } from '../../domain/types';
+import { Node, Status, UiuxFacet } from '../../domain/types';
 import { useStore } from '../../store/useStore';
-import { ExternalLink, Palette, Smartphone } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 
 interface UiuxTabProps {
   node: Node;
@@ -14,7 +14,7 @@ interface UiuxTabProps {
 
 export default function UiuxTab({ node }: UiuxTabProps) {
   const { updateRole, teamMembers } = useStore();
-  const uiux = node.roles?.uiux || {
+  const uiux: UiuxFacet = node.roles?.uiux || {
     assignee: '',
     status: 'planned',
     screen: '',
@@ -166,45 +166,17 @@ export default function UiuxTab({ node }: UiuxTabProps) {
           />
         </div>
 
-        {/* Placeholder wireframe mockup generator */}
-        <div className="pt-2">
-          <label className="block text-[9px] font-bold text-gray-400 font-mono uppercase tracking-wider mb-2">
-            Pratinjau Mockup Layar (Wireframe)
-          </label>
-          <div className="border border-white/5 rounded-2xl bg-[#0A0A0B] p-4 flex flex-col items-center justify-center text-center">
-            {uiux.screen ? (
-              <div className="w-full max-w-48 bg-[#131315] border border-white/10 rounded-2xl p-3 shadow-2xl font-sans">
-                {/* Simulated Phone UI */}
-                <div className="w-8 h-1 bg-white/10 rounded-full mx-auto mb-3" />
-                <div className="border-b border-white/5 pb-2 mb-2 flex items-center justify-between">
-                  <span className="text-[10px] font-bold text-white truncate w-24 block text-left">
-                    {uiux.screen}
-                  </span>
-                  <Palette className="w-3" style={{ color: '#C5A267' }} />
-                </div>
-                {/* Simulated content blocks */}
-                <div className="space-y-2">
-                  <div className="h-6 rounded bg-[#1A1A1D] border border-white/5 flex items-center px-1.5 justify-between">
-                    <div className="w-8 h-2 bg-white/10 rounded" />
-                    <div className="w-3 h-3 rounded-full bg-white/10" />
-                  </div>
-                  <div className="h-10 rounded bg-[#1A1A1D] border border-white/5 flex-col flex justify-center p-1.5 space-y-1.5">
-                    <div className="w-12 h-1.5 bg-white/15 rounded" />
-                    <div className="w-20 h-1.5 bg-white/10 rounded" />
-                  </div>
-                  <div className="h-6 rounded-md bg-[#C5A267] text-black text-[8px] font-mono font-bold flex items-center justify-center">
-                    KIRIM APPROVAL
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="py-6 text-gray-500">
-                <Smartphone className="w-8 h-8 mx-auto mb-2 text-white/5" />
-                <p className="text-[10px] font-medium max-w-40 mx-auto">Tulis nama layar diatas untuk merender wireframe interaktif otomatis.</p>
-              </div>
-            )}
+        {([
+          ['userGoal', 'Tujuan pengguna'], ['surface', 'Surface / platform'], ['designVersion', 'Versi desain'],
+          ['screenStates', 'Screen states'], ['interactions', 'Interaksi'], ['contentMessages', 'Konten & pesan'],
+          ['responsiveIntent', 'Responsif'], ['accessibilityNotes', 'Aksesibilitas'], ['notes', 'Checklist handoff & evidence'],
+        ] as const).map(([key, label]) => (
+          <div className="space-y-1" key={key}>
+            <label className="block text-[9px] font-bold text-gray-400 font-mono uppercase tracking-wider">{label}</label>
+            <textarea value={uiux[key] || ''} onChange={(e) => handleFieldChange(key, e.target.value)} rows={2}
+              className="w-full text-xs border border-white/5 rounded-xl px-3 py-2 bg-[#1A1A1D] text-white outline-none focus:ring-1 focus:ring-[#C5A267] h-16 resize-none" />
           </div>
-        </div>
+        ))}
 
       </div>
     </div>
