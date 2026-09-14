@@ -29,9 +29,10 @@ type UserLoginRequest struct {
 
 // UserLoginResponse is returned upon successful authentication
 type UserLoginResponse struct {
-	Token          string `json:"token"`
-	User           User   `json:"user"`
-	OrganizationID string `json:"organization_id"`
+	Token            string `json:"token"`
+	User             User   `json:"user"`
+	OrganizationID   string `json:"organization_id"`
+	OrganizationRole string `json:"organization_role"`
 }
 
 type InvitationRequest struct {
@@ -53,6 +54,7 @@ type Project struct {
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
 	OwnerID     string    `json:"owner_id"`
+	Status      string    `json:"status"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 

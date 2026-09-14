@@ -40,13 +40,19 @@ func GetProjectsHandler(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Organization access denied"})
 		return
 	}
-	// Retrieve only projects in the active organization.
+	status := strings.ToLower(strings.TrimSpace(c.DefaultQuery("status", "active")))
+	if status != "active" && status != "archived" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Project status must be active or archived"})
+		return
+	}
+
+	// Retrieve only projects in the active organization and requested lifecycle state.
 	rows, err := db.DB.Query(`
-		SELECT DISTINCT p.id, p.name, p.description, p.owner_id, p.created_at 
+		SELECT DISTINCT p.id, p.name, p.description, p.owner_id, p.status, p.created_at
 		FROM projects p 
 		LEFT JOIN project_members pm ON p.id = pm.project_id 
-		WHERE p.status = 'active' AND p.organization_id = $2 AND (p.owner_id = $1 OR pm.user_id = $1)
-		ORDER BY p.created_at DESC`, userID, organizationID)
+		WHERE p.status = $3 AND p.organization_id = $2 AND (p.owner_id = $1 OR pm.user_id = $1)
+		ORDER BY p.created_at DESC`, userID, organizationID, status)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database query error"})
 		return
@@ -56,7 +62,7 @@ func GetProjectsHandler(c *gin.Context) {
 	projects := []models.Project{}
 	for rows.Next() {
 		var p models.Project
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.OwnerID, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.OwnerID, &p.Status, &p.CreatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse projects"})
 			return
 		}
@@ -172,8 +178,8 @@ func GetProjectDetailHandler(c *gin.Context) {
 
 	// Retrieve project
 	var p models.Project
-	err = db.DB.QueryRow("SELECT id, name, description, owner_id, created_at FROM projects WHERE id = $1 AND status = 'active'", projectID).
-		Scan(&p.ID, &p.Name, &p.Description, &p.OwnerID, &p.CreatedAt)
+	err = db.DB.QueryRow("SELECT id, name, description, owner_id, status, created_at FROM projects WHERE id = $1 AND status = 'active'", projectID).
+		Scan(&p.ID, &p.Name, &p.Description, &p.OwnerID, &p.Status, &p.CreatedAt)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get project info"})
 		return
@@ -248,7 +254,53 @@ func DeleteProjectHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete project"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Project deleted successfully"})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Project archived successfully"})
+}
+
+// RestoreProjectHandler restores a project that was previously archived. The
+// project owner or an owner of the active organization may perform the action.
+func RestoreProjectHandler(c *gin.Context) {
+	userID, err := middleware.GetUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	organizationID, ok := c.Get(string(middleware.OrganizationContextKey))
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization access denied"})
+		return
+	}
+
+	projectID := c.Param("id")
+	var allowed bool
+	err = db.DB.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1
+			FROM projects p
+			JOIN organization_members om ON om.organization_id = p.organization_id
+			WHERE p.id = $1 AND p.organization_id = $2 AND p.status = 'archived'
+			  AND om.user_id = $3 AND om.status = 'active'
+			  AND (p.owner_id = $3 OR om.role = 'owner')
+		)`, projectID, organizationID, userID).Scan(&allowed)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error checking project ownership"})
+		return
+	}
+	if !allowed {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Only project or organization owners can restore this project"})
+		return
+	}
+
+	result, err := db.DB.Exec(`UPDATE projects SET status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND organization_id = $2 AND status = 'archived'`, projectID, organizationID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to restore project"})
+		return
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		c.JSON(http.StatusConflict, gin.H{"error": "Project is no longer archived"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Project restored successfully"})
 }
 
 // GetProjectModulesHandler handles GET /api/projects/:id/modules

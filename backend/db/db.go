@@ -84,6 +84,12 @@ func runMigrations() {
 	// Execute work-item, comment, and evidence migration
 	runMigrationFromFile(DB, "07_work_items.sql")
 
+	// Execute structured cross-discipline specification migration
+	runMigrationFromFile(DB, "08_domain_specifications.sql")
+
+	// Repair organization ownership inherited from the pre-RBAC schema
+	runMigrationFromFile(DB, "09_legacy_organization_ownership.sql")
+
 	log.Println("Migrations executed successfully.")
 }
 

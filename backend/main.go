@@ -77,6 +77,7 @@ func main() {
 		api.POST("/projects", handlers.CreateProjectHandler)
 		api.GET("/projects/:id", handlers.GetProjectDetailHandler)
 		api.DELETE("/projects/:id", handlers.DeleteProjectHandler)
+		api.POST("/projects/:id/restore", handlers.RestoreProjectHandler)
 
 		// Project Members
 		api.GET("/projects/:id/members", handlers.GetProjectMembersHandler)
