@@ -2,6 +2,9 @@ package models
 
 import "time"
 
+type APIRunRequest struct { EnvironmentID string `json:"environment_id"`; Method string `json:"method"`; RelativePath string `json:"relative_path"`; Headers map[string]string `json:"headers"`; Body string `json:"body"` }
+type APIRunResult struct { ID string `json:"id"`; Status string `json:"status"`; StatusCode int `json:"status_code,omitempty"`; DurationMS int64 `json:"duration_ms"`; ResponseSize int `json:"response_size"`; Headers map[string]string `json:"headers"`; Body string `json:"body,omitempty"`; Truncated bool `json:"truncated"`; RequestID string `json:"request_id"`; PolicyDecision string `json:"policy_decision"` }
+
 // User represents the system user
 type User struct {
 	ID           string    `json:"id"`
