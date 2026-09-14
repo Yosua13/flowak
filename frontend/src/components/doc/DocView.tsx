@@ -172,10 +172,14 @@ export default function DocView() {
                 </div>
 
                 {/* Substantive prose detailing business logic policies (Fills the narrative style) */}
-                {node.doc.rules && (
+                {Boolean(node.doc.rules?.length) && (
                   <div className="pl-4 border-l-2 border-[#C5A267]/50 mt-2 text-xs italic text-gray-400 font-serif text-left">
                     <p className="font-sans font-bold text-[9px] tracking-wider text-[#C5A267] uppercase not-italic mb-1">Kebijakan Logika & Aturan Mutlak:</p>
-                    {node.doc.rules}
+                    <ul className="space-y-1">
+                      {node.doc.rules?.map((rule, index) => (
+                        <li key={`${rule.code || 'rule'}-${index}`}>{rule.description}</li>
+                      ))}
+                    </ul>
                   </div>
                 )}
 

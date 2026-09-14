@@ -13,6 +13,9 @@ const isRegistered = (name?: string): boolean => {
   return teamMembers.some((m) => m.name === name);
 };
 
+const formatBusinessRules = (rules: Module['nodes'][number]['doc']['rules']): string =>
+  (rules || []).map((rule) => rule.description).filter(Boolean).join('; ');
+
 /**
  * Utility to download files in the browser
  */
@@ -54,7 +57,8 @@ export function generateMarkdown(module: Module): string {
     if (node.doc.sla) md += `- **SLA Estimasi**: ${node.doc.sla}\n`;
     if (node.doc.priority || node.doc.riskLevel) md += `- **Prioritas/Risiko**: ${node.doc.priority || 'medium'} / ${node.doc.riskLevel || 'medium'}\n`;
     if (node.doc.process) md += `- **Deskripsi Proses**: ${node.doc.process}\n`;
-    if (node.doc.rules) md += `- **Aturan Bisnis**: ${node.doc.rules}\n`;
+    const businessRules = formatBusinessRules(node.doc.rules);
+    if (businessRules) md += `- **Aturan Bisnis**: ${businessRules}\n`;
     if (node.doc.exceptionPath) md += `- **Alur Pengecualian**: ${node.doc.exceptionPath}\n`;
     if (node.doc.acceptanceCriteria) md += `- **Kriteria Selesai**: ${node.doc.acceptanceCriteria}\n`;
     if (node.doc.input) md += `- **Input**: ${node.doc.input}\n`;
@@ -133,7 +137,7 @@ export function generateOpenApi(module: Module): string {
 
       const operation: any = {
         summary: node.label,
-        description: `Implementasi proses bisnis untuk langkah: "${node.label}". [Aktor: ${node.doc.actor || 'N/A'}] [Aturan Bisnis: ${node.doc.rules || 'N/A'}]`,
+        description: `Implementasi proses bisnis untuk langkah: "${node.label}". [Aktor: ${node.doc.actor || 'N/A'}] [Aturan Bisnis: ${formatBusinessRules(node.doc.rules) || 'N/A'}]`,
         responses: {},
       };
 
@@ -249,7 +253,7 @@ export function exportToCsv(module: Module) {
       node.doc.priority || '',
       node.doc.riskLevel || '',
       (node.doc.process || '').replace(/"/g, '""'), // escape quotes in CSV
-      (node.doc.rules || '').replace(/"/g, '""'),
+      (node.doc.rules || []).map((rule) => rule.description).join('; ').replace(/"/g, '""'),
       (node.doc.exceptionPath || '').replace(/"/g, '""'),
       (node.doc.acceptanceCriteria || '').replace(/"/g, '""'),
       node.roles.uiux?.assignee && isRegistered(node.roles.uiux.assignee) ? node.roles.uiux.assignee : '',
