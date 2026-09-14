@@ -28,6 +28,7 @@ export interface ProjectItem {
   name: string;
   description: string;
   owner_id: string;
+  status: 'active' | 'archived';
   created_at: string;
 }
 
@@ -41,10 +42,12 @@ interface AppStore {
     role: 'pm' | 'uiux' | 'frontend' | 'backend';
   } | null;
   isAuthenticated: boolean;
+  organizationRole: 'owner' | 'member' | null;
   screen: AppScreen;
 
   // Project Management State
   projects: ProjectItem[];
+  archivedProjects: ProjectItem[];
   activeProjectId: string | null;
 
   // Workspace/Module State
@@ -76,8 +79,10 @@ interface AppStore {
 
   // Actions - Project Management
   loadProjects: () => Promise<void>;
+  loadArchivedProjects: () => Promise<void>;
   createProject: (name: string, description: string) => Promise<boolean>;
   deleteProject: (id: string) => Promise<void>;
+  restoreProject: (id: string) => Promise<void>;
   selectProject: (id: string | null) => Promise<void>;
 
   // Actions - Module management
@@ -188,10 +193,12 @@ export const useStore = create<AppStore>((set, get) => ({
   token: null,
   currentUser: null,
   isAuthenticated: false,
+  organizationRole: null,
   screen: 'login',
 
   // Initial Project State
   projects: [],
+  archivedProjects: [],
   activeProjectId: null,
 
   // Initial Workspace/Module State
@@ -243,10 +250,12 @@ export const useStore = create<AppStore>((set, get) => ({
         set({
           token: session.token,
           currentUser: parsedUser,
+          organizationRole: session.organization_role,
           isAuthenticated: true,
           screen: 'dashboard'
         });
         await get().loadProjects();
+        await get().loadArchivedProjects();
         await get().loadTeamMembers();
       } catch {
         set({ screen: 'login' });
@@ -290,12 +299,14 @@ export const useStore = create<AppStore>((set, get) => ({
       set({
         token: data.token,
         currentUser: data.user,
+        organizationRole: data.organization_role,
         isAuthenticated: true,
         screen: 'dashboard'
       });
 
       get().addNotification('Login Sukses', `Selamat datang kembali, ${data.user.name}!`, 'success');
       await get().loadProjects();
+      await get().loadArchivedProjects();
       await get().loadTeamMembers();
       return true;
     } catch (err) {
@@ -335,8 +346,10 @@ export const useStore = create<AppStore>((set, get) => ({
       token: null,
       currentUser: null,
       isAuthenticated: false,
+      organizationRole: null,
       screen: 'login',
       projects: [],
+      archivedProjects: [],
       activeProjectId: null,
       modules: [],
       activeId: null,
@@ -364,6 +377,22 @@ export const useStore = create<AppStore>((set, get) => ({
       }
     } catch (err) {
       console.error('Failed to load projects:', err);
+    }
+  },
+
+  loadArchivedProjects: async () => {
+    const { token } = get();
+    if (!token) return;
+
+    try {
+      const res = await fetch('/api/projects?status=archived', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        set({ archivedProjects: await res.json() });
+      }
+    } catch (err) {
+      console.error('Failed to load archived projects:', err);
     }
   },
 
@@ -406,11 +435,34 @@ export const useStore = create<AppStore>((set, get) => ({
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
-        get().addNotification('Proyek Dihapus', 'Proyek berhasil dihapus.', 'warning');
+		get().addNotification('Proyek Diarsipkan', 'Proyek dapat dipulihkan dari daftar arsip.', 'warning');
         await get().loadProjects();
+		await get().loadArchivedProjects();
       }
     } catch (err) {
       console.error('Failed to delete project:', err);
+    }
+  },
+
+  restoreProject: async (id) => {
+    const { token } = get();
+    if (!token) return;
+
+    try {
+      const res = await fetch(`/api/projects/${id}/restore`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        get().addNotification('Gagal Memulihkan Proyek', data.error || 'Terjadi kesalahan', 'warning');
+        return;
+      }
+      get().addNotification('Proyek Dipulihkan', 'Proyek kembali tersedia di workspace.', 'success');
+      await get().loadProjects();
+      await get().loadArchivedProjects();
+    } catch (err) {
+      get().addNotification('Gagal Memulihkan Proyek', 'Koneksi ke server terputus.', 'warning');
     }
   },
 
@@ -612,7 +664,7 @@ export const useStore = create<AppStore>((set, get) => ({
         input: '',
         process: '',
         output: '',
-        rules: '',
+        rules: [],
         exceptionPath: '',
         system: type === 'system' ? 'Aplikasi Gateway' : 'FlowakPortal',
         sla: 'Instan',
