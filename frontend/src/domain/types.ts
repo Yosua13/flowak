@@ -14,24 +14,43 @@ export type Status = 'planned' | 'in_progress' | 'review' | 'done';
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export interface BusinessFacet {
+  outcome?: string;
   actor?: string;
+  triggerType?: 'manual' | 'event' | 'schedule' | 'api';
   trigger?: string;
+  preconditions?: string;
   input?: string;
   process?: string;
   output?: string;
-  rules?: string;
+  rules?: BusinessRule[];
+  decisionOutcomes?: DecisionOutcome[];
+  exceptionPaths?: string;
   exceptionPath?: string;
   system?: string;
   sla?: string;
   priority?: string;
   riskLevel?: string;
   acceptanceCriteria?: string;
+  referenceLinks?: string;
 }
+
+export interface BusinessRule { code?: string; severity?: 'low' | 'medium' | 'high' | 'critical'; description: string; }
+export interface DecisionOutcome { outcome: string; edgeId?: ID; }
 
 export interface UiuxFacet {
   assignee?: string;
+  reviewer?: string;
+  readiness?: Status;
   status?: Status;
+  userGoal?: string;
+  surface?: string;
   screen?: string;
+  figmaFrameUrl?: string;
+  designVersion?: string;
+  screenStates?: string;
+  interactions?: string;
+  contentMessages?: string;
+  responsiveIntent?: string;
   link?: string;
   wireframeUrl?: string;
   stateNotes?: string;
@@ -42,12 +61,20 @@ export interface UiuxFacet {
 
 export interface FrontendFacet {
   assignee?: string;
+  reviewer?: string;
+  readiness?: Status;
   status?: Status;
+  experienceName?: string;
   page?: string;
   route?: string;
+  entryExitBehavior?: string;
   interaction?: string;
+  inputRequirements?: string;
   validation?: string;
   state?: string;
+  apiReferences?: string;
+  analyticsIntent?: string;
+  featureAvailability?: string;
   handoffLink?: string;
   dueDate?: string;
   notes?: string;
@@ -55,7 +82,11 @@ export interface FrontendFacet {
 
 export interface BackendFacet {
   assignee?: string;
+  reviewer?: string;
+  readiness?: Status;
   status?: Status;
+  serviceCapability?: string;
+  apiReferences?: string;
   method?: HttpMethod;
   endpoint?: string;
   auth?: string;
@@ -63,6 +94,13 @@ export interface BackendFacet {
   response?: string; // JSON text
   statusCode?: string;
   errorCodes?: string; // JSON text
+  businessValidation?: string;
+  dependencyReferences?: string;
+  idempotencyNotes?: string;
+  cachingNotes?: string;
+  securityNotes?: string;
+  observabilityIntent?: string;
+  sla?: string;
   dueDate?: string;
   notes?: string;
 }

@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { Node, Status, HttpMethod } from '../../domain/types';
+import { Node, Status, HttpMethod, BackendFacet } from '../../domain/types';
 import { useStore } from '../../store/useStore';
 import { generateCurl } from '../../services/curl';
 import { Copy, Play, Check, AlertCircle, RefreshCw, Sparkles, Loader2 } from 'lucide-react';
@@ -15,7 +15,7 @@ interface BackendTabProps {
 
 export default function BackendTab({ node }: BackendTabProps) {
   const { updateRole, teamMembers, addNotification, token } = useStore();
-  const be = node.roles?.backend || {
+  const be: BackendFacet = node.roles?.backend || {
     assignee: '',
     status: 'planned',
     method: 'GET',
@@ -350,6 +350,19 @@ export default function BackendTab({ node }: BackendTabProps) {
             </div>
           )}
         </div>
+
+        {([
+          ['serviceCapability', 'Kapabilitas layanan'], ['apiReferences', 'Referensi kontrak API'],
+          ['businessValidation', 'Validasi bisnis'], ['dependencyReferences', 'Referensi dependensi'],
+          ['idempotencyNotes', 'Idempotensi'], ['cachingNotes', 'Caching'], ['securityNotes', 'Keamanan'],
+          ['observabilityIntent', 'Observability'], ['sla', 'SLA'], ['notes', 'Checklist acceptance & evidence'],
+        ] as const).map(([key, label]) => (
+          <div className="space-y-1" key={key}>
+            <label className="block text-[9px] font-bold text-gray-400 font-mono uppercase tracking-wider">{label}</label>
+            <textarea value={be[key] || ''} onChange={(e) => handleFieldChange(key, e.target.value)} rows={2}
+              className="w-full text-xs border border-white/5 rounded-xl px-3 py-2 bg-[#1A1A1D] text-white outline-none focus:ring-1 focus:ring-[#C5A267] h-16 resize-none" />
+          </div>
+        ))}
 
       </div>
     </div>

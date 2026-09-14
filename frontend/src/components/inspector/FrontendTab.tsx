@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { Node, Status } from '../../domain/types';
+import { Node, Status, FrontendFacet } from '../../domain/types';
 import { useStore } from '../../store/useStore';
 import { ExternalLink, FileText, MousePointer2, Route } from 'lucide-react';
 
@@ -14,7 +14,7 @@ interface FrontendTabProps {
 
 export default function FrontendTab({ node }: FrontendTabProps) {
   const { updateRole, teamMembers } = useStore();
-  const fe = node.roles?.frontend || {
+  const fe: FrontendFacet = node.roles?.frontend || {
     assignee: '',
     status: 'planned',
     page: '',
@@ -196,6 +196,19 @@ export default function FrontendTab({ node }: FrontendTabProps) {
             )}
           </div>
         </div>
+
+        {([
+          ['experienceName', 'Nama pengalaman'], ['entryExitBehavior', 'Perilaku masuk / keluar'],
+          ['inputRequirements', 'Kebutuhan input'], ['apiReferences', 'Referensi API'],
+          ['analyticsIntent', 'Intent analytics'], ['featureAvailability', 'Ketersediaan fitur'],
+          ['notes', 'Checklist handoff & evidence'],
+        ] as const).map(([key, label]) => (
+          <div className="space-y-1" key={key}>
+            <label className="block text-[9px] font-bold text-gray-400 font-mono uppercase tracking-wider">{label}</label>
+            <textarea value={fe[key] || ''} onChange={(e) => handleFieldChange(key, e.target.value)} rows={2}
+              className="w-full text-xs border border-white/5 rounded-xl px-3 py-2 bg-[#1A1A1D] text-white outline-none focus:ring-1 focus:ring-[#C5A267] h-16 resize-none" />
+          </div>
+        ))}
       </div>
     </div>
   );
