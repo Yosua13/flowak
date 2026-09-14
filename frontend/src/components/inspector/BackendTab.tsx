@@ -49,15 +49,8 @@ export default function BackendTab({ node }: BackendTabProps) {
   };
 
   const handleTestEndpoint = () => {
-    setTesting(true);
     setTestResult(null);
-    setTimeout(() => {
-      setTesting(false);
-      setTestResult({
-        code: be.statusCode || '200',
-        body: be.response || '{\n  "message": "Success",\n  "simulated": true\n}',
-      });
-    }, 850);
+    addNotification('Runner aman diperlukan', 'Request hanya dapat dijalankan oleh server-side API runner setelah contract dan environment disimpan.', 'info');
   };
 
   // AI Generates Mock Request/Response Contracts
@@ -329,7 +322,7 @@ export default function BackendTab({ node }: BackendTabProps) {
             ) : (
               <>
                 <Play className="w-3.5 h-3.5 text-black" />
-                <span>UJI ENDPOINT (SIMULASI)</span>
+            <span>KIRIM VIA RUNNER AMAN</span>
               </>
             )}
           </button>
@@ -337,7 +330,7 @@ export default function BackendTab({ node }: BackendTabProps) {
           {testResult && (
             <div className="mt-3 bg-[#0A0A0B] border border-white/10 rounded-xl p-3 text-[10px] font-mono leading-relaxed select-text relative">
               <span className="absolute right-2.5 top-2 bg-[#C5A267] text-black font-mono text-[8px] font-bold px-1.5 py-0.5 rounded shadow">
-                SIMULASI UJI
+                HASIL RUNNER
               </span>
               <div className="flex items-center space-x-1.5 text-gray-400 border-b border-white/5 pb-1.5 mb-2">
                 <AlertCircle className="w-3.5 h-3.5 text-emerald-400" />

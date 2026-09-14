@@ -90,6 +90,9 @@ func runMigrations() {
 	// Repair organization ownership inherited from the pre-RBAC schema
 	runMigrationFromFile(DB, "09_legacy_organization_ownership.sql")
 
+	// Secure API contract builder and server-side runner.
+	runMigrationFromFile(DB, "10_api_contract_runner.sql")
+
 	log.Println("Migrations executed successfully.")
 }
 

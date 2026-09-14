@@ -101,6 +101,9 @@ func main() {
 		api.POST("/nodes/:id/comments", handlers.CreateNodeCommentHandler)
 		api.PATCH("/comments/:id", handlers.UpdateCommentHandler)
 
+		// Server-side only API contract execution; browser never calls targets directly.
+		api.POST("/api-requests/:id/runs", handlers.RunAPIRequestHandler)
+
 		// AI Proxies
 		api.POST("/ai/generate-flow", handlers.AiGenerateFlowHandler)
 		api.POST("/ai/mock-payload", handlers.AiMockPayloadHandler)
