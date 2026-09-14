@@ -13,7 +13,8 @@ export function generateCurl(backendFacet: BackendFacet, baseUrl: string = 'http
   const method = backendFacet.method || 'GET';
   const endpoint = backendFacet.endpoint || '/api/endpoint';
   const fullUrl = endpoint.startsWith('http') ? endpoint : `${baseUrl}${endpoint}`;
-  const authHeader = backendFacet.auth ? backendFacet.auth : 'Bearer YOUR_TOKEN_HERE';
+  // Contracts may name an auth strategy, but generated commands never expose its value.
+  const authHeader = backendFacet.auth ? `{{${backendFacet.auth.replace(/[^A-Za-z0-9_]/g, '_').toUpperCase()}_SECRET}}` : '{{API_TOKEN_SECRET}}';
 
   let curlParts = [
     `curl -X ${method} "${fullUrl}"`,
