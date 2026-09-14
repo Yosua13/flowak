@@ -54,6 +54,7 @@ interface AppStore {
   modules: Module[];
   activeId: ID | null;
   selectedNodeId: ID | null;
+  selectedWorkItemKey: string | null;
   view: AppView;
   connectFrom: ID | null;
   darkMode: boolean;
@@ -107,6 +108,7 @@ interface AppStore {
   
   // Actions - UI Selection
   selectNode: (id: ID | null) => void;
+  selectWorkItem: (key: string | null) => void;
   setConnectFrom: (id: ID | null) => void;
   
   // Actions - Notifications
@@ -205,6 +207,7 @@ export const useStore = create<AppStore>((set, get) => ({
   modules: [],
   activeId: null,
   selectedNodeId: null,
+  selectedWorkItemKey: null,
   view: 'canvas',
   connectFrom: null,
   darkMode: true,
@@ -630,7 +633,7 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   setView: (view) => {
-    set({ view });
+    set((state) => ({ view, selectedWorkItemKey: view === 'kanban' ? state.selectedWorkItemKey : null }));
   },
 
   // Node Management Actions
@@ -963,6 +966,9 @@ export const useStore = create<AppStore>((set, get) => ({
 
   selectNode: (id) => {
     set({ selectedNodeId: id });
+  },
+  selectWorkItem: (key) => {
+    set({ selectedWorkItemKey: key });
   },
 
   setConnectFrom: (id) => {
