@@ -94,9 +94,16 @@ export default function NodeCard({ node }: NodeCardProps) {
           setConnectFrom(null);
         }
       } else {
+        cardRef.current?.focus();
         selectNode(node.id);
       }
     }
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    if (connectFrom === null) selectNode(node.id);
   };
 
   // Render role badges (UX, FE, BE)
@@ -165,6 +172,10 @@ export default function NodeCard({ node }: NodeCardProps) {
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
+      onKeyDown={handleKeyDown}
+      tabIndex={0}
+      role="button"
+      aria-label={`Buka detail node ${node.label}`}
       style={{
         left: node.x,
         top: node.y,
