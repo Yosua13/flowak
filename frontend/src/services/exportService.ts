@@ -1,5 +1,6 @@
 import { Module } from '../domain/types';
 import { useStore } from '../store/useStore';
+import type { DerivedViewData } from './derivedViewData';
 
 const getDisplayAssignee = (name?: string): string => {
   if (!name) return 'Belum ditunjuk';
@@ -12,6 +13,9 @@ const isRegistered = (name?: string): boolean => {
   const { teamMembers } = useStore.getState();
   return teamMembers.some((m) => m.name === name);
 };
+
+const formatBusinessRules = (rules: Module['nodes'][number]['doc']['rules']): string =>
+  (rules || []).map((rule) => rule.description).filter(Boolean).join('; ');
 
 /**
  * Utility to download files in the browser
@@ -32,18 +36,21 @@ function downloadFile(content: string, filename: string, contentType: string) {
  * Export module to raw canonical JSON
  */
 export function exportToJson(module: Module) {
-  const jsonString = JSON.stringify(module, null, 2);
+  const jsonString = JSON.stringify({ schemaVersion: module.schemaVersion, exportedAt: new Date().toISOString(), module }, null, 2);
   downloadFile(jsonString, `${module.name.toLowerCase().replace(/\s+/g, '_')}_canonical.json`, 'application/json');
 }
 
 /**
  * Export module to polished readable Markdown (PDF printable text)
  */
-export function generateMarkdown(module: Module): string {
+export function generateMarkdown(module: Module, derived?: DerivedViewData | null): string {
   let md = `# Alur Kerja: ${module.name}\n\n`;
   if (module.description) {
     md += `> ${module.description}\n\n`;
   }
+  const baseline = derived?.baselines[0];
+  md += `- **Schema version**: ${module.schemaVersion}\n`;
+  md += baseline ? `- **Baseline modul**: v${baseline.version} (${new Date(baseline.created_at).toISOString()})\n\n` : `- **Baseline modul**: belum dipublikasikan\n\n`;
 
   md += `## 1. Ringkasan Langkah Bisnis\n\n`;
   module.nodes.forEach((node, index) => {
@@ -54,7 +61,8 @@ export function generateMarkdown(module: Module): string {
     if (node.doc.sla) md += `- **SLA Estimasi**: ${node.doc.sla}\n`;
     if (node.doc.priority || node.doc.riskLevel) md += `- **Prioritas/Risiko**: ${node.doc.priority || 'medium'} / ${node.doc.riskLevel || 'medium'}\n`;
     if (node.doc.process) md += `- **Deskripsi Proses**: ${node.doc.process}\n`;
-    if (node.doc.rules) md += `- **Aturan Bisnis**: ${node.doc.rules}\n`;
+    const businessRules = formatBusinessRules(node.doc.rules);
+    if (businessRules) md += `- **Aturan Bisnis**: ${businessRules}\n`;
     if (node.doc.exceptionPath) md += `- **Alur Pengecualian**: ${node.doc.exceptionPath}\n`;
     if (node.doc.acceptanceCriteria) md += `- **Kriteria Selesai**: ${node.doc.acceptanceCriteria}\n`;
     if (node.doc.input) md += `- **Input**: ${node.doc.input}\n`;
@@ -87,6 +95,14 @@ export function generateMarkdown(module: Module): string {
       const labelStr = edge.label ? ` --[ "${edge.label}" ]--> ` : ' ----> ';
       md += `- \`${fromNode}\`${labelStr}\`${toNode}\`\n`;
     });
+  }
+
+  md += `\n## 3. Ringkasan Work Item\n\n`;
+  if (!derived?.work_items.length) md += `*Belum ada work item pada modul ini.*\n`;
+  else derived.work_items.forEach((item) => { md += `- **${item.key}** [${item.status}] ${item.title}${item.due_date ? ` (due ${item.due_date})` : ''}\n`; });
+  if (derived?.comments.length) {
+    md += `\n## 4. Keputusan dan Komentar\n\n`;
+    derived.comments.forEach((comment) => { md += `- ${comment.body}\n`; });
   }
 
   md += `\n\n*Dokumen dicetak otomatis via Flowak Workspace pd ${new Date().toLocaleDateString('id-ID')}*\n`;
@@ -133,7 +149,7 @@ export function generateOpenApi(module: Module): string {
 
       const operation: any = {
         summary: node.label,
-        description: `Implementasi proses bisnis untuk langkah: "${node.label}". [Aktor: ${node.doc.actor || 'N/A'}] [Aturan Bisnis: ${node.doc.rules || 'N/A'}]`,
+        description: `Implementasi proses bisnis untuk langkah: "${node.label}". [Aktor: ${node.doc.actor || 'N/A'}] [Aturan Bisnis: ${formatBusinessRules(node.doc.rules) || 'N/A'}]`,
         responses: {},
       };
 
@@ -142,22 +158,8 @@ export function generateOpenApi(module: Module): string {
         description: `Respon contoh kesuksesan (Status ${code})`,
       };
 
-      if (be.response) {
-        try {
-          const parsedRes = JSON.parse(be.response);
-          operation.responses[code].content = {
-            'application/json': {
-              example: parsedRes,
-            },
-          };
-        } catch (e) {
-          operation.responses[code].content = {
-            'application/json': {
-              example: { rawResponse: be.response },
-            },
-          };
-        }
-      }
+      // Response examples can contain production data; a contract exports its typed shape only.
+      operation.responses[code].content = { 'application/json': { schema: { type: 'object' } } };
 
       if (method !== 'get' && be.request) {
         try {
@@ -168,7 +170,7 @@ export function generateOpenApi(module: Module): string {
                 schema: {
                   type: 'object',
                 },
-                example: parsedReq,
+                example: redactSensitive(parsedReq),
               },
             },
           };
@@ -176,7 +178,7 @@ export function generateOpenApi(module: Module): string {
           operation.requestBody = {
             content: {
               'application/json': {
-                example: be.request,
+                example: '[redacted non-JSON request example]',
               },
             },
           };
@@ -192,6 +194,28 @@ export function generateOpenApi(module: Module): string {
   });
 
   return JSON.stringify(openapi, null, 2);
+}
+
+const sensitiveKey = /authorization|cookie|password|secret|token|api[_-]?key/i;
+export function redactSensitive(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactSensitive);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, sensitiveKey.test(key) ? '{{REDACTED}}' : redactSensitive(item)]));
+  return value;
+}
+
+export function generateRedactedCurl(module: Module): string {
+  return module.nodes.flatMap((node) => {
+    const contract = node.roles.backend;
+    if (!contract?.endpoint) return [];
+    const method = contract.method || 'GET';
+    const auth = contract.auth ? " -H 'Authorization: Bearer {{API_TOKEN}}'" : '';
+    const body = method === 'GET' || !contract.request ? '' : " -H 'Content-Type: application/json' --data '{{REQUEST_BODY}}'";
+    return [`# ${node.label}\ncurl -X ${method} '{{BASE_URL}}${contract.endpoint.split('?')[0]}'${auth}${body}`];
+  }).join('\n\n');
+}
+
+export function exportToCurl(module: Module) {
+  downloadFile(generateRedactedCurl(module), `${module.name.toLowerCase().replace(/\s+/g, '_')}_requests.sh`, 'text/plain');
 }
 
 export function exportToOpenApi(module: Module) {
@@ -249,7 +273,7 @@ export function exportToCsv(module: Module) {
       node.doc.priority || '',
       node.doc.riskLevel || '',
       (node.doc.process || '').replace(/"/g, '""'), // escape quotes in CSV
-      (node.doc.rules || '').replace(/"/g, '""'),
+      (node.doc.rules || []).map((rule) => rule.description).join('; ').replace(/"/g, '""'),
       (node.doc.exceptionPath || '').replace(/"/g, '""'),
       (node.doc.acceptanceCriteria || '').replace(/"/g, '""'),
       node.roles.uiux?.assignee && isRegistered(node.roles.uiux.assignee) ? node.roles.uiux.assignee : '',

@@ -192,8 +192,8 @@ func LoginHandler(c *gin.Context) {
 
 	_, _ = db.DB.Exec("UPDATE users SET last_login_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1", user.ID)
 
-	var organizationID string
-	err = db.DB.QueryRow(`SELECT organization_id FROM organization_members WHERE user_id = $1 AND status = 'active' ORDER BY joined_at ASC LIMIT 1`, user.ID).Scan(&organizationID)
+	var organizationID, organizationRole string
+	err = db.DB.QueryRow(`SELECT organization_id, role FROM organization_members WHERE user_id = $1 AND status = 'active' ORDER BY joined_at ASC LIMIT 1`, user.ID).Scan(&organizationID, &organizationRole)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "No active organization membership"})
 		return
@@ -206,7 +206,7 @@ func LoginHandler(c *gin.Context) {
 	setRefreshCookie(c, refreshToken)
 
 	resp := models.UserLoginResponse{
-		Token: tokenString, User: user, OrganizationID: organizationID,
+		Token: tokenString, User: user, OrganizationID: organizationID, OrganizationRole: organizationRole,
 	}
 
 	c.JSON(http.StatusOK, resp)
@@ -258,8 +258,8 @@ func RefreshHandler(c *gin.Context) {
 		return
 	}
 	var user models.User
-	var sessionID, organizationID string
-	err = db.DB.QueryRow(`SELECT s.id, s.organization_id, u.id, u.name, u.email, u.role, u.created_at FROM user_sessions s JOIN users u ON u.id=s.user_id WHERE s.refresh_token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at > CURRENT_TIMESTAMP AND u.status='active'`, tokenHash(refreshToken)).Scan(&sessionID, &organizationID, &user.ID, &user.Name, &user.Email, &user.Role, &user.CreatedAt)
+	var sessionID, organizationID, organizationRole string
+	err = db.DB.QueryRow(`SELECT s.id, s.organization_id, om.role, u.id, u.name, u.email, u.role, u.created_at FROM user_sessions s JOIN users u ON u.id=s.user_id JOIN organization_members om ON om.organization_id=s.organization_id AND om.user_id=s.user_id AND om.status='active' WHERE s.refresh_token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at > CURRENT_TIMESTAMP AND u.status='active'`, tokenHash(refreshToken)).Scan(&sessionID, &organizationID, &organizationRole, &user.ID, &user.Name, &user.Email, &user.Role, &user.CreatedAt)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid session"})
 		return
@@ -285,7 +285,7 @@ func RefreshHandler(c *gin.Context) {
 		return
 	}
 	setRefreshCookie(c, newRefresh)
-	c.JSON(http.StatusOK, models.UserLoginResponse{Token: access, User: user, OrganizationID: organizationID})
+	c.JSON(http.StatusOK, models.UserLoginResponse{Token: access, User: user, OrganizationID: organizationID, OrganizationRole: organizationRole})
 }
 
 func LogoutHandler(c *gin.Context) {

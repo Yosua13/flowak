@@ -31,7 +31,9 @@ CREATE TABLE IF NOT EXISTS organization_members (
 );
 
 INSERT INTO organization_members (organization_id, user_id, role, status)
-SELECT 'org_default', id, role, status
+SELECT 'org_default', id,
+       CASE WHEN role = 'pm' THEN 'owner' ELSE 'member' END,
+       status
 FROM users
 ON CONFLICT (organization_id, user_id) DO NOTHING;
 

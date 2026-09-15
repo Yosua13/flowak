@@ -74,12 +74,24 @@ func runMigrations() {
 
 	// Execute SaaS tenant and normalized workflow migration
 	runMigrationFromFile(DB, "04_saas_normalized_schema.sql")
-  
-  // Execute graph safety migration
+
+	// Execute graph safety migration
 	runMigrationFromFile(DB, "05_workflow_graph_safety.sql")
 
 	// Execute tenant authentication and project RBAC migration
 	runMigrationFromFile(DB, "06_tenant_auth_rbac.sql")
+
+	// Execute work-item, comment, and evidence migration
+	runMigrationFromFile(DB, "07_work_items.sql")
+
+	// Execute structured cross-discipline specification migration
+	runMigrationFromFile(DB, "08_domain_specifications.sql")
+
+	// Repair organization ownership inherited from the pre-RBAC schema
+	runMigrationFromFile(DB, "09_legacy_organization_ownership.sql")
+
+	// Secure API contract builder and server-side runner.
+	runMigrationFromFile(DB, "10_api_contract_runner.sql")
 
 	log.Println("Migrations executed successfully.")
 }

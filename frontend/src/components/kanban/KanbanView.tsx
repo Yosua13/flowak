@@ -1,216 +1,107 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, Archive, CalendarDays, ChevronLeft, ChevronRight, CircleUserRound, ClipboardList, Filter, GripVertical, MessageSquare, Plus, Search, Send, X } from 'lucide-react';
+import type { WorkItem, WorkItemStatus, WorkItemType } from '../../domain/types';
 import { useStore } from '../../store/useStore';
-import { RoleKey, Status } from '../../domain/types';
-import { Kanban, Filter, User } from 'lucide-react';
+import { workItemsApi, type WorkItemInput } from '../../services/workItems';
+import { BOARD_STATUSES, columnMetrics, filterWorkItems, itemByKey, type KanbanFilters } from './kanbanModel';
 
-interface KanbanTask {
-  nodeId: string;
-  nodeLabel: string;
-  roleKey: RoleKey;
-  assignee: string;
-  status: Status;
-  dueDate?: string;
-  detail: any;
-}
+const statusTone: Record<WorkItemStatus, string> = { Backlog: 'border-gray-500', Ready: 'border-cyan-500', 'In Progress': 'border-blue-500', 'In Review': 'border-violet-500', Blocked: 'border-rose-500', Done: 'border-emerald-500', Canceled: 'border-gray-700' };
+const types: WorkItemType[] = ['Story', 'Task', 'Bug', 'Review', 'Research', 'Subtask'];
+const points = [1, 2, 3, 5, 8, 13] as const;
+type Member = { id: string; name: string };
+type BoardNode = { id: string; label: string; moduleId: string; doc: { outcome?: string; actor?: string } };
 
 export default function KanbanView() {
-  const { modules, activeId, updateRole, teamMembers } = useStore();
-  const activeModule = modules.find((m) => m.id === activeId);
+  const store = useStore();
+  const { activeProjectId, activeId, modules, projectMembers, selectedWorkItemKey } = store;
+  const [items, setItems] = useState<WorkItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [dragOver, setDragOver] = useState<WorkItemStatus | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [filters, setFilters] = useState<KanbanFilters>({ search: '', moduleId: activeId || 'all', assigneeId: 'all', type: 'all', facet: 'all', priority: 'all', includeCanceled: false });
+  const nodes = useMemo<BoardNode[]>(() => modules.flatMap((module) => module.nodes.map((node) => ({ ...node, moduleId: module.id }))), [modules]);
+  const visible = useMemo(() => filterWorkItems(items, filters), [items, filters]);
+  const selected = itemByKey(items, selectedWorkItemKey);
 
-  const [roleFilter, setRoleFilter] = useState<string>('all');
-  const [draggedOverCol, setDraggedOverCol] = useState<Status | null>(null);
-
-  if (!activeModule) {
-    return (
-      <div className="flex-1 p-8 bg-[#0A0A0B] text-gray-500 text-center flex items-center justify-center">
-        <p>Silakan buat atau pilih modul alur kerja untuk melihat Papan Kanban.</p>
-      </div>
-    );
-  }
-
-  // Gather all tasks of the active module
-  const tasks: KanbanTask[] = [];
-  activeModule.nodes.forEach((node) => {
-    ['uiux', 'frontend', 'backend'].forEach((role) => {
-      const facet = node.roles[role as RoleKey];
-      if (facet) {
-        const isRegistered = facet.assignee && teamMembers.some((m) => m.name === facet.assignee);
-        tasks.push({
-          nodeId: node.id,
-          nodeLabel: node.label,
-          roleKey: role as RoleKey,
-          assignee: isRegistered ? facet.assignee : 'Belum ditunjuk',
-          status: facet.status || 'planned',
-          dueDate: facet.dueDate,
-          detail: facet,
-        });
-      }
-    });
-  });
-
-  // Filtered tasks
-  const filteredTasks = tasks.filter((t) => {
-    if (roleFilter === 'all') return true;
-    return t.roleKey === roleFilter;
-  });
-
-  const columns: { id: Status; label: string; color: string; border: string }[] = [
-    { id: 'planned', label: 'Terencana (Backlog)', color: 'border-l-4 border-l-gray-400 bg-gray-950/20', border: 'border-white/5' },
-    { id: 'in_progress', label: 'Pengerjaan (In Progress)', color: 'border-l-4 border-l-blue-400 bg-blue-950/5', border: 'border-blue-900/10' },
-    { id: 'review', label: 'Peninjauan (In Review)', color: 'border-l-4 border-l-purple-400 bg-purple-950/5', border: 'border-purple-900/10' },
-    { id: 'done', label: 'Selesai (Completed)', color: 'border-l-4 border-l-emerald-400 bg-emerald-950/5', border: 'border-emerald-900/10' },
-  ];
-
-  const handleMoveStatus = (nodeId: string, roleKey: RoleKey, nextStatus: Status) => {
-    updateRole(nodeId, roleKey, { status: nextStatus });
+  const load = async () => {
+    if (!activeProjectId) return;
+    setLoading(true); setError('');
+    try { setItems(await workItemsApi.list(activeProjectId, 'limit=100')); }
+    catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Work item tidak dapat dimuat.'); }
+    finally { setLoading(false); }
   };
+  useEffect(() => { void load(); }, [activeProjectId]);
+  useEffect(() => { if (activeId) setFilters((current) => ({ ...current, moduleId: activeId })); }, [activeId]);
 
-  const getRoleBadge = (r: RoleKey) => {
-    switch (r) {
-      case 'uiux': return 'bg-pink-500/10 text-pink-400 border-pink-500/20';
-      case 'frontend': return 'bg-sky-500/10 text-sky-400 border-sky-500/20';
-      case 'backend': return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
+  const transition = async (item: WorkItem, status: WorkItemStatus) => {
+    if (item.status === status) return;
+    let note = '';
+    if (status === 'Blocked') note = window.prompt('Tuliskan alasan task diblokir:')?.trim() || '';
+    if (status === 'Done') note = window.prompt('Tuliskan resolusi penyelesaian:')?.trim() || '';
+    if ((status === 'Blocked' || status === 'Done') && !note) return;
+    const previous = items;
+    setItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, status } : candidate));
+    try {
+      const updated = await workItemsApi.transition(item.key, status, item.row_version, note);
+      setItems((current) => current.map((candidate) => candidate.id === item.id ? updated : candidate));
+    } catch (requestError) {
+      setItems(previous);
+      store.addNotification('Perubahan Dibatalkan', requestError instanceof Error ? requestError.message : 'Status task tidak dapat diubah.', 'warning');
     }
   };
 
-  return (
-    <div className="flex-1 bg-[#0A0A0B] p-6 overflow-y-auto scrollbar-thin select-none text-left">
-      
-      {/* View Header */}
-      <div className="mb-6 flex flex-col md:flex-row items-start md:items-center justify-between border-b border-white/5 pb-4">
-        <div>
-          <h2 className="text-sm font-bold text-white flex items-center uppercase tracking-widest" style={{ fontFamily: 'Georgia, serif' }}>
-            <Kanban className="w-5 h-5 mr-2 text-[#C5A267]" />
-            Papan Kanban Transparansi Tugas
-          </h2>
-          <p className="text-xs text-gray-400 mt-1">
-            Gunakan gestur seret-dan-lepas (Drag & Drop) kartu tugas untuk merubah status secara interaktif.
-          </p>
-        </div>
-
-        {/* Filter controls */}
-        <div className="flex items-center space-x-2 mt-4 md:mt-0">
-          <Filter className="w-3.5 h-3.5 text-gray-400" />
-          <span className="text-[10px] font-bold font-mono text-gray-400 uppercase tracking-widest">Filter Tim:</span>
-          <select
-            value={roleFilter}
-            onChange={(e) => setRoleFilter(e.target.value)}
-            className="text-xs border border-white/10 rounded-xl px-3 py-1.5 bg-[#131315] text-white outline-none focus:ring-1 focus:ring-[#C5A267]"
-          >
-            <option value="all">Semua Peran</option>
-            <option value="uiux">UI/UX Designer</option>
-            <option value="frontend">Frontend Engineer</option>
-            <option value="backend">Backend Engineer</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Kanban Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 items-start">
-        {columns.map((col) => {
-          const colTasks = filteredTasks.filter((t) => t.status === col.id);
-          const isDraggedOver = draggedOverCol === col.id;
-
-          return (
-            <div
-              key={col.id}
-              onDragOver={(e) => e.preventDefault()}
-              onDragEnter={() => setDraggedOverCol(col.id)}
-              onDragLeave={() => setDraggedOverCol(null)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDraggedOverCol(null);
-                try {
-                  const dataStr = e.dataTransfer.getData("text/plain");
-                  if (dataStr) {
-                    const { nodeId, roleKey } = JSON.parse(dataStr);
-                    handleMoveStatus(nodeId, roleKey, col.id);
-                  }
-                } catch (err) {
-                  console.error("Drop error:", err);
-                }
-              }}
-              className={`rounded-2xl border p-4 flex flex-col min-h-[520px] transition-all duration-150 ${col.color} ${col.border} ${
-                isDraggedOver ? 'border-[#C5A267]/60 bg-[#C5A267]/5 shadow-[0_0_15px_rgba(197,162,103,0.15)] scale-[1.01]' : ''
-              }`}
-            >
-              {/* Column Header */}
-              <div className="flex items-center justify-between border-b border-white/5 pb-2.5 mb-4">
-                <span className="text-xs font-bold text-white uppercase tracking-wider">{col.label}</span>
-                <span className="bg-white/5 text-gray-400 font-mono text-[10px] font-bold px-2 py-0.5 rounded-full">
-                  {colTasks.length}
-                </span>
-              </div>
-
-              {/* Column Cards */}
-              <div className="flex-1 flex flex-col space-y-3.5 overflow-y-auto max-h-[700px] scrollbar-none pb-4">
-                {colTasks.map((task) => (
-                  <div
-                    key={`${task.nodeId}_${task.roleKey}`}
-                    draggable="true"
-                    onDragStart={(e) => {
-                      e.dataTransfer.effectAllowed = "move";
-                      e.dataTransfer.setData("text/plain", JSON.stringify({ nodeId: task.nodeId, roleKey: task.roleKey }));
-                    }}
-                    className="p-4 bg-[#131315]/95 border border-white/5 rounded-2xl shadow-xl hover:border-[#C5A267]/30 hover:bg-[#131315]/100 cursor-grab active:cursor-grabbing hover:scale-[1.01] transition-all duration-150 flex flex-col space-y-3 pb-3 select-none"
-                  >
-                    {/* Node and Role headers */}
-                    <div className="flex items-start justify-between gap-1 pointer-events-none">
-                      <span className="text-xs font-bold text-white tracking-tight line-clamp-2">{task.nodeLabel}</span>
-                      <span className={`text-[9px] font-bold font-mono tracking-wider px-2 py-0.5 rounded border uppercase flex-shrink-0 ${getRoleBadge(task.roleKey)}`}>
-                        {task.roleKey.toUpperCase()}
-                      </span>
-                    </div>
-
-                    {/* Member Assignee name view */}
-                    <div className="flex items-center space-x-2 text-gray-400 text-[11px] font-sans pointer-events-none">
-                      <User className="w-3.5 h-3.5 text-gray-500" />
-                      <span>{task.assignee}</span>
-                    </div>
-
-                    {task.dueDate && (
-                      <div className="text-[10px] font-mono text-[#C5A267] pointer-events-none">
-                        Due {task.dueDate}
-                      </div>
-                    )}
-
-                    {/* Status Mover Quick Switcher */}
-                    <div className="pt-2 border-t border-white/3 flex items-center justify-between">
-                      <span className="text-[9px] font-mono font-bold text-gray-500 uppercase tracking-widest">Kirim Ke:</span>
-                      <div className="flex items-center space-x-1">
-                        {columns.map((c) => {
-                          if (c.id === task.status) return null;
-                          return (
-                            <button
-                              key={c.id}
-                              onClick={() => handleMoveStatus(task.nodeId, task.roleKey, c.id)}
-                              className="text-[8px] font-mono font-bold px-1.5 py-1 rounded bg-white/5 hover:bg-[#C5A267] hover:text-black text-gray-300 transition duration-100 cursor-pointer uppercase"
-                              title={`Ubah status ke ${c.label}`}
-                            >
-                              {c.id === 'planned' ? 'PLAN' : c.id === 'in_progress' ? 'PROG' : c.id === 'review' ? 'REV' : 'DONE'}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-
-                {colTasks.length === 0 && (
-                  <div className="flex-1 flex flex-col items-center justify-center p-6 border-2 border-dashed border-white/5 rounded-2xl text-gray-600 mt-2">
-                    <p className="text-[10px] uppercase tracking-widest font-mono">KOSONG</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
+  if (!activeProjectId) return <Empty message="Pilih proyek untuk membuka Kanban." />;
+  return <div className="flex-1 overflow-hidden bg-[#0A0A0B] text-left text-gray-100">
+    <header className="border-b border-white/10 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-base font-bold text-white">Kanban Work Item</h1><p className="text-xs text-gray-500">Pekerjaan nyata yang terhubung ke node dan spesifikasi.</p></div><button onClick={() => setCreating(true)} className="flex items-center gap-2 rounded-lg bg-[#C5A267] px-3 py-2 text-xs font-bold text-black"><Plus className="h-4 w-4" />Task baru</button></div>
+      <BoardFilters filters={filters} setFilters={setFilters} modules={modules} members={projectMembers} />
+    </header>
+    {loading ? <Empty message="Memuat work item..." /> : error ? <Empty message={error} action={load} /> : <div className="h-[calc(100%-132px)] overflow-x-auto p-4 scrollbar-thin"><div className="grid min-w-[1320px] grid-cols-6 gap-3 items-start">{BOARD_STATUSES.map((status) => {
+      const cards = visible.filter((item) => item.status === status); const metrics = columnMetrics(visible, status);
+      return <section key={status} onDragOver={(event) => event.preventDefault()} onDragEnter={() => setDragOver(status)} onDragLeave={() => setDragOver(null)} onDrop={(event) => { event.preventDefault(); setDragOver(null); const item = itemByKey(items, event.dataTransfer.getData('text/work-item')); if (item) void transition(item, status); }} className={`min-h-[520px] rounded-lg border border-white/10 border-t-2 bg-[#111113] p-3 ${statusTone[status]} ${dragOver === status ? 'ring-1 ring-[#C5A267]' : ''}`}>
+        <div className="mb-3 flex items-start justify-between gap-2 border-b border-white/5 pb-3"><div><h2 className="text-xs font-bold text-white">{status}</h2><p className="mt-1 text-[10px] text-gray-500">{metrics.points} poin · {metrics.overdue} terlambat</p></div><span className="rounded bg-white/5 px-2 py-1 text-[10px] font-mono">{metrics.count}</span></div>
+        <div className="space-y-2">{cards.map((item) => <WorkItemCard key={item.id} item={item} nodeLabel={nodes.find((node) => node.id === item.node_id)?.label} assignee={projectMembers.find((member) => member.id === item.assignee_id)?.name} onOpen={() => store.selectWorkItem(item.key)} onTransition={transition} />)}{!cards.length && <button onClick={() => setCreating(true)} className="w-full rounded-lg border border-dashed border-white/10 p-6 text-xs text-gray-600 hover:text-gray-400">Tambah task</button>}</div>
+      </section>;
+    })}</div></div>}
+    {creating && <CreateModal projectId={activeProjectId} modules={modules} nodes={nodes} members={projectMembers} defaultModuleId={filters.moduleId === 'all' ? activeId || '' : filters.moduleId} onClose={() => setCreating(false)} onCreated={(item) => { setItems((current) => [item, ...current]); setCreating(false); store.selectWorkItem(item.key); }} />}
+    {selectedWorkItemKey && <DetailModal item={selected} items={items} nodes={nodes} members={projectMembers} onClose={() => store.selectWorkItem(null)} onUpdated={(updated) => setItems((current) => current.map((item) => item.id === updated.id ? updated : item))} onNavigate={store.selectWorkItem} onOpenNode={(nodeId) => { store.selectWorkItem(null); store.selectNode(nodeId); store.setView('canvas'); }} />}
+  </div>;
 }
+
+function BoardFilters({ filters, setFilters, modules, members }: { filters: KanbanFilters; setFilters: React.Dispatch<React.SetStateAction<KanbanFilters>>; modules: Array<{ id: string; name: string }>; members: Member[] }) {
+  const change = (key: keyof KanbanFilters, value: string | boolean) => setFilters((current) => ({ ...current, [key]: value }));
+  return <div className="mt-4 flex flex-wrap items-center gap-2"><div className="relative min-w-56 flex-1"><Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-600" /><input value={filters.search} onChange={(event) => change('search', event.target.value)} placeholder="Cari key, judul, deskripsi" className="w-full rounded-lg border border-white/10 bg-[#151517] py-2 pl-9 pr-3 text-xs outline-none focus:border-[#C5A267]" /></div><Filter className="h-4 w-4 text-gray-600" /><Select value={filters.moduleId} onChange={(value) => change('moduleId', value)} label="Modul" options={[['all','Semua modul'],...modules.map((item) => [item.id,item.name])]} /><Select value={filters.assigneeId} onChange={(value) => change('assigneeId', value)} label="Assignee" options={[['all','Semua assignee'],...members.map((item) => [item.id,item.name])]} /><Select value={filters.type} onChange={(value) => change('type', value)} label="Tipe" options={[['all','Semua tipe'],...types.map((item) => [item,item])]} /><Select value={filters.facet} onChange={(value) => change('facet', value)} label="Facet" options={[['all','Semua facet'],['business','Bisnis'],['uiux','UI/UX'],['frontend','Frontend'],['backend','Backend']]} /><Select value={filters.priority} onChange={(value) => change('priority', value)} label="Prioritas" options={[['all','Semua prioritas'],['low','Low'],['medium','Medium'],['high','High'],['critical','Critical']]} /><label className="flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs text-gray-400"><input type="checkbox" checked={filters.includeCanceled} onChange={(event) => change('includeCanceled', event.target.checked)} />Canceled</label></div>;
+}
+
+function Select({ value, onChange, label, options }: { value: string; onChange: (value: string) => void; label: string; options: string[][] }) { return <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="max-w-44 rounded-lg border border-white/10 bg-[#151517] px-2 py-2 text-xs text-gray-300">{options.map(([key,text]) => <option key={key} value={key}>{text}</option>)}</select>; }
+
+function WorkItemCard({ item, nodeLabel, assignee, onOpen, onTransition }: { key?: React.Key; item: WorkItem; nodeLabel?: string; assignee?: string; onOpen: () => void; onTransition: (item: WorkItem, status: WorkItemStatus) => void }) {
+  const overdue = item.due_date && new Date(item.due_date) < new Date() && item.status !== 'Done';
+  return <article draggable onDragStart={(event) => { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/work-item', item.key); }} onClick={onOpen} className="rounded-lg border border-white/10 bg-[#18181B] p-3 shadow-md hover:border-[#C5A267]/40 cursor-pointer"><div className="flex items-start gap-2"><GripVertical className="mt-0.5 h-4 w-4 shrink-0 text-gray-700" /><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><span className="text-[10px] font-mono text-[#C5A267]">{item.key}</span><span className="text-[9px] uppercase text-gray-500">{item.type}</span></div><h3 className="mt-1 text-xs font-semibold leading-5 text-white">{item.title}</h3>{nodeLabel && <p className="mt-1 truncate text-[10px] text-gray-500">{nodeLabel}{item.facet_key ? ` · ${item.facet_key}` : ''}</p>}</div></div><div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] text-gray-500"><span className={`rounded px-1.5 py-0.5 ${item.priority === 'critical' ? 'bg-rose-500/15 text-rose-300' : 'bg-white/5'}`}>{item.priority}</span>{item.points && <span>{item.points} pt</span>}<span className="flex items-center gap-1"><CircleUserRound className="h-3 w-3" />{assignee || 'Unassigned'}</span>{item.due_date && <span className={overdue ? 'text-rose-400' : ''}><CalendarDays className="mr-1 inline h-3 w-3" />{item.due_date.slice(0,10)}</span>}{item.status === 'Blocked' && <AlertTriangle className="h-3.5 w-3.5 text-rose-400" />}</div><select aria-label={`Ubah status ${item.key}`} value={item.status} onClick={(event) => event.stopPropagation()} onChange={(event) => void onTransition(item, event.target.value as WorkItemStatus)} className="mt-3 w-full rounded border border-white/10 bg-[#111113] px-2 py-1.5 text-[10px] text-gray-400">{BOARD_STATUSES.map((status) => <option key={status}>{status}</option>)}<option>Canceled</option></select></article>;
+}
+
+function CreateModal({ projectId, modules, nodes, members, defaultModuleId, onClose, onCreated }: { projectId: string; modules: Array<{id:string;name:string}>; nodes: BoardNode[]; members: Member[]; defaultModuleId: string; onClose: () => void; onCreated: (item: WorkItem) => void }) {
+  const [form, setForm] = useState<WorkItemInput>({ type: 'Task', title: '', priority: 'medium', module_id: defaultModuleId || undefined }); const [error,setError]=useState(''); const [saving,setSaving]=useState(false);
+  const set=(key:keyof WorkItemInput,value:unknown)=>setForm((current)=>({...current,[key]:value||undefined}));
+  const submit=async(event:React.FormEvent)=>{event.preventDefault();setSaving(true);setError('');try{onCreated(await workItemsApi.create(projectId,form));}catch(requestError){setError(requestError instanceof Error?requestError.message:'Task gagal dibuat.');}finally{setSaving(false);}};
+  return <Modal title="Task baru" onClose={onClose}><form onSubmit={submit} className="grid gap-4 md:grid-cols-2"><Field label="Judul" wide><input autoFocus required value={form.title} onChange={(event)=>set('title',event.target.value)} className="input" /></Field><Field label="Deskripsi" wide><textarea value={form.description||''} onChange={(event)=>set('description',event.target.value)} className="input min-h-24" /></Field><Field label="Tipe"><Select value={form.type} onChange={(value)=>set('type',value)} label="Tipe task" options={types.map((item)=>[item,item])} /></Field><Field label="Prioritas"><Select value={form.priority||'medium'} onChange={(value)=>set('priority',value)} label="Prioritas" options={['low','medium','high','critical'].map((item)=>[item,item])} /></Field><Field label="Modul"><Select value={form.module_id||''} onChange={(value)=>{set('module_id',value);set('node_id','');}} label="Modul" options={[['','Pilih modul'],...modules.map((item)=>[item.id,item.name])]} /></Field><Field label="Node"><Select value={form.node_id||''} onChange={(value)=>set('node_id',value)} label="Node" options={[['','Project umum'],...nodes.filter((node)=>!form.module_id||node.moduleId===form.module_id).map((node)=>[node.id,node.label])]} /></Field><Field label="Facet"><Select value={form.facet_key||''} onChange={(value)=>set('facet_key',value)} label="Facet" options={[['','Tanpa facet'],['business','Bisnis'],['uiux','UI/UX'],['frontend','Frontend'],['backend','Backend']]} /></Field><Field label="Assignee"><Select value={form.assignee_id||''} onChange={(value)=>set('assignee_id',value)} label="Assignee" options={[['','Unassigned'],...members.map((item)=>[item.id,item.name])]} /></Field><Field label="Point"><Select value={form.points?.toString()||''} onChange={(value)=>set('points',value?Number(value):undefined)} label="Point" options={[['','Tanpa point'],...points.map((item)=>[String(item),String(item)])]} /></Field><Field label="Deadline"><input type="date" value={form.due_date||''} onChange={(event)=>set('due_date',event.target.value)} className="input" /></Field>{error&&<p className="md:col-span-2 text-xs text-rose-400">{error}</p>}<div className="md:col-span-2 flex justify-end gap-2"><button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-xs text-gray-400">Batal</button><button disabled={saving||!form.title.trim()} className="rounded-lg bg-[#C5A267] px-4 py-2 text-xs font-bold text-black disabled:opacity-50">{saving?'Menyimpan...':'Buat task'}</button></div></form></Modal>;
+}
+
+function DetailModal({ item, items, nodes, members, onClose, onUpdated, onNavigate, onOpenNode }: { item?: WorkItem; items: WorkItem[]; nodes: BoardNode[]; members: Member[]; onClose:()=>void; onUpdated:(item:WorkItem)=>void; onNavigate:(key:string|null)=>void; onOpenNode:(id:string)=>void }) {
+  const [draft,setDraft]=useState<WorkItem|undefined>(item); const [comments,setComments]=useState<Array<{id:string;author_id:string;body:string;created_at:string}>>([]); const [comment,setComment]=useState(''); const [error,setError]=useState(''); const [saving,setSaving]=useState(false);
+  useEffect(()=>{setDraft(item);if(item)workItemsApi.comments(item.key).then(setComments).catch((requestError)=>setError(requestError instanceof Error?requestError.message:'Komentar gagal dimuat.'));},[item?.key]);
+  const dirty=Boolean(item&&draft&&JSON.stringify(item)!==JSON.stringify(draft));
+  useEffect(()=>{const handler=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.preventDefault();if(!dirty||window.confirm('Buang perubahan yang belum disimpan?'))onClose();}};window.addEventListener('keydown',handler);return()=>window.removeEventListener('keydown',handler);},[dirty,onClose]);
+  if(!item||!draft)return <Modal title="Memuat detail" onClose={onClose}><p className="text-sm text-gray-500">Mengambil work item dari server...</p></Modal>;
+  const index=items.findIndex((candidate)=>candidate.id===item.id); const node=nodes.find((candidate)=>candidate.id===item.node_id);
+  const save=async()=>{setSaving(true);setError('');try{const updated=await workItemsApi.update(item.key,{...draft,row_version:item.row_version});onUpdated(updated);setDraft(updated);}catch(requestError){setError(requestError instanceof Error?requestError.message:'Perubahan gagal disimpan.');}finally{setSaving(false);}};
+  const send=async(event:React.FormEvent)=>{event.preventDefault();if(!comment.trim())return;try{await workItemsApi.comment(item.key,comment.trim());setComment('');setComments(await workItemsApi.comments(item.key));}catch(requestError){setError(requestError instanceof Error?requestError.message:'Komentar gagal dikirim.');}};
+  const close=()=>{if(!dirty||window.confirm('Buang perubahan yang belum disimpan?'))onClose();};
+  const children=items.filter((candidate)=>candidate.parent_id===item.id);
+  return <Modal title={`${item.key} · ${item.type}`} onClose={close} actions={<><button disabled={index<=0} onClick={()=>onNavigate(items[index-1]?.key)} aria-label="Task sebelumnya"><ChevronLeft className="h-4 w-4" /></button><button disabled={index<0||index>=items.length-1} onClick={()=>onNavigate(items[index+1]?.key)} aria-label="Task berikutnya"><ChevronRight className="h-4 w-4" /></button></>}><div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_260px]"><div className="space-y-5"><input value={draft.title} onChange={(event)=>setDraft({...draft,title:event.target.value})} className="w-full border-b border-white/10 bg-transparent pb-2 text-xl font-bold text-white outline-none focus:border-[#C5A267]" /><textarea value={draft.description||''} onChange={(event)=>setDraft({...draft,description:event.target.value})} placeholder="Deskripsi pekerjaan" className="input min-h-32" />{node&&<section className="rounded-lg border border-white/10 bg-[#151517] p-3"><p className="text-[10px] uppercase text-gray-500">Node terkait</p><p className="mt-1 text-sm font-semibold text-white">{node.label}</p><p className="mt-2 text-xs text-gray-400">{node.doc.outcome||'Outcome belum ditulis.'}</p><p className="mt-1 text-xs text-gray-500">Aktor: {node.doc.actor||'Belum ditentukan'}</p><button onClick={()=>onOpenNode(node.id)} className="mt-3 text-xs text-[#C5A267]">Buka detail node</button></section>}{children.length>0&&<section><h3 className="mb-2 text-sm font-bold">Child tasks</h3><div className="space-y-2">{children.map((child)=><button key={child.id} onClick={()=>onNavigate(child.key)} className="flex w-full items-center justify-between rounded-lg border border-white/10 p-3 text-left text-xs"><span>{child.key} · {child.title}</span><span className="text-gray-500">{child.status}</span></button>)}</div></section>}<section><h3 className="mb-3 flex items-center gap-2 text-sm font-bold"><MessageSquare className="h-4 w-4" />Komentar ({comments.length})</h3><div className="space-y-2">{comments.map((entry)=><div key={entry.id} className="rounded-lg border border-white/10 p-3"><p className="text-sm text-gray-200">{entry.body}</p><p className="mt-2 text-[10px] text-gray-600">{members.find((member)=>member.id===entry.author_id)?.name||entry.author_id} · {new Date(entry.created_at).toLocaleString('id-ID')}</p></div>)}</div><form onSubmit={send} className="mt-3 flex gap-2"><input value={comment} onChange={(event)=>setComment(event.target.value)} placeholder="Tulis komentar" className="input" /><button className="rounded-lg bg-[#C5A267] p-2 text-black" aria-label="Kirim komentar"><Send className="h-4 w-4" /></button></form></section></div><aside className="space-y-4"><Field label="Status"><span className="text-sm text-white">{draft.status}</span></Field><Field label="Tipe"><Select value={draft.type} onChange={(value)=>setDraft({...draft,type:value as WorkItemType})} label="Tipe" options={types.map((value)=>[value,value])} /></Field><Field label="Facet"><Select value={draft.facet_key||''} onChange={(value)=>setDraft({...draft,facet_key:value||undefined})} label="Facet" options={[['','Tanpa facet'],['business','Bisnis'],['uiux','UI/UX'],['frontend','Frontend'],['backend','Backend']]} /></Field><Field label="Assignee"><Select value={draft.assignee_id||''} onChange={(value)=>setDraft({...draft,assignee_id:value||undefined})} label="Assignee" options={[['','Unassigned'],...members.map((member)=>[member.id,member.name])]} /></Field><Field label="Prioritas"><Select value={draft.priority} onChange={(value)=>setDraft({...draft,priority:value as WorkItem['priority']})} label="Prioritas" options={['low','medium','high','critical'].map((value)=>[value,value])} /></Field><Field label="Point"><Select value={draft.points?.toString()||''} onChange={(value)=>setDraft({...draft,points:value?Number(value) as WorkItem['points']:undefined})} label="Point" options={[['','Tanpa point'],...points.map((value)=>[String(value),String(value)])]} /></Field><Field label="Deadline"><input type="date" value={draft.due_date?.slice(0,10)||''} onChange={(event)=>setDraft({...draft,due_date:event.target.value})} className="input" /></Field><Field label="Parent"><Select value={draft.parent_id||''} onChange={(value)=>setDraft({...draft,parent_id:value||undefined})} label="Parent" options={[['','Tanpa parent'],...items.filter((candidate)=>candidate.id!==item.id).map((candidate)=>[candidate.id,`${candidate.key} · ${candidate.title}`])]} /></Field>{error&&<p className="text-xs text-rose-400">{error}</p>}<button disabled={!dirty||saving} onClick={()=>void save()} className="w-full rounded-lg bg-[#C5A267] px-3 py-2 text-xs font-bold text-black disabled:opacity-40">{saving?'Menyimpan...':'Simpan perubahan'}</button></aside></div></Modal>;
+}
+
+function Modal({ title,onClose,actions,children }: { title:string;onClose:()=>void;actions?:React.ReactNode;children:React.ReactNode }) { const ref=React.useRef<HTMLElement>(null); useEffect(()=>{const first=ref.current?.querySelector<HTMLElement>('input,button,select,textarea');first?.focus();const trap=(event:KeyboardEvent)=>{if(event.key!=='Tab'||!ref.current)return;const controls=Array.from(ref.current.querySelectorAll('input,button:not([disabled]),select,textarea')) as HTMLElement[];if(!controls.length)return;const firstControl=controls[0];const lastControl=controls[controls.length-1];if(event.shiftKey&&document.activeElement===firstControl){event.preventDefault();lastControl.focus();}else if(!event.shiftKey&&document.activeElement===lastControl){event.preventDefault();firstControl.focus();}};window.addEventListener('keydown',trap);return()=>window.removeEventListener('keydown',trap);},[]);return <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label={title}><section ref={ref} className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-lg border border-white/10 bg-[#111113] shadow-2xl"><header className="flex items-center justify-between border-b border-white/10 p-4"><div className="flex items-center gap-3"><ClipboardList className="h-4 w-4 text-[#C5A267]" /><h2 className="text-sm font-bold text-white">{title}</h2></div><div className="flex items-center gap-2 text-gray-400">{actions}<button onClick={onClose} aria-label="Tutup"><X className="h-5 w-5" /></button></div></header><div className="max-h-[calc(90vh-58px)] overflow-y-auto p-5 scrollbar-thin">{children}</div></section></div>; }
+function Field({ label,wide,children }: { label:string;wide?:boolean;children:React.ReactNode }) { return <label className={`block space-y-1 text-[10px] font-bold uppercase text-gray-500 ${wide?'md:col-span-2':''}`}><span>{label}</span>{children}</label>; }
+function Empty({ message,action }: { message:string;action?:()=>void }) { return <div className="flex h-full flex-1 flex-col items-center justify-center gap-3 p-8 text-sm text-gray-500"><Archive className="h-8 w-8 text-gray-700" /><p>{message}</p>{action&&<button onClick={()=>void action()} className="text-[#C5A267]">Coba lagi</button>}</div>; }

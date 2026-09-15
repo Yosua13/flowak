@@ -2,6 +2,9 @@ package models
 
 import "time"
 
+type APIRunRequest struct { EnvironmentID string `json:"environment_id"`; Method string `json:"method"`; RelativePath string `json:"relative_path"`; Headers map[string]string `json:"headers"`; Body string `json:"body"` }
+type APIRunResult struct { ID string `json:"id"`; Status string `json:"status"`; StatusCode int `json:"status_code,omitempty"`; DurationMS int64 `json:"duration_ms"`; ResponseSize int `json:"response_size"`; Headers map[string]string `json:"headers"`; Body string `json:"body,omitempty"`; Truncated bool `json:"truncated"`; RequestID string `json:"request_id"`; PolicyDecision string `json:"policy_decision"` }
+
 // User represents the system user
 type User struct {
 	ID           string    `json:"id"`
@@ -29,9 +32,10 @@ type UserLoginRequest struct {
 
 // UserLoginResponse is returned upon successful authentication
 type UserLoginResponse struct {
-	Token          string `json:"token"`
-	User           User   `json:"user"`
-	OrganizationID string `json:"organization_id"`
+	Token            string `json:"token"`
+	User             User   `json:"user"`
+	OrganizationID   string `json:"organization_id"`
+	OrganizationRole string `json:"organization_role"`
 }
 
 type InvitationRequest struct {
@@ -53,6 +57,7 @@ type Project struct {
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
 	OwnerID     string    `json:"owner_id"`
+	Status      string    `json:"status"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
@@ -90,4 +95,103 @@ type ModuleRequest struct {
 type GraphDelete struct {
 	ID         string `json:"id"`
 	RowVersion int    `json:"rowVersion"`
+}
+
+// WorkItem is an execution unit and is deliberately separate from graph readiness facets.
+type WorkItem struct {
+	ID            string     `json:"id"`
+	Key           string     `json:"key"`
+	ProjectID     string     `json:"project_id"`
+	ModuleID      *string    `json:"module_id,omitempty"`
+	NodeID        *string    `json:"node_id,omitempty"`
+	FacetKey      *string    `json:"facet_key,omitempty"`
+	ParentID      *string    `json:"parent_id,omitempty"`
+	Type          string     `json:"type"`
+	Title         string     `json:"title"`
+	Description   *string    `json:"description,omitempty"`
+	Priority      string     `json:"priority"`
+	Points        *int       `json:"points,omitempty"`
+	Status        string     `json:"status"`
+	AssigneeID    *string    `json:"assignee_id,omitempty"`
+	ReporterID    string     `json:"reporter_id"`
+	StartDate     *time.Time `json:"start_date,omitempty"`
+	DueDate       *time.Time `json:"due_date,omitempty"`
+	BlockedReason *string    `json:"blocked_reason,omitempty"`
+	Resolution    *string    `json:"resolution,omitempty"`
+	RowVersion    int        `json:"row_version"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+}
+
+type WorkItemRequest struct {
+	ModuleID      *string `json:"module_id,omitempty"`
+	NodeID        *string `json:"node_id,omitempty"`
+	FacetKey      *string `json:"facet_key,omitempty"`
+	ParentID      *string `json:"parent_id,omitempty"`
+	Type          string  `json:"type"`
+	Title         string  `json:"title"`
+	Description   *string `json:"description,omitempty"`
+	Priority      string  `json:"priority,omitempty"`
+	Points        *int    `json:"points,omitempty"`
+	Status        string  `json:"status,omitempty"`
+	AssigneeID    *string `json:"assignee_id,omitempty"`
+	StartDate     *string `json:"start_date,omitempty"`
+	DueDate       *string `json:"due_date,omitempty"`
+	BlockedReason *string `json:"blocked_reason,omitempty"`
+	Resolution    *string `json:"resolution,omitempty"`
+	RowVersion    int     `json:"row_version"`
+}
+
+type WorkItemTransitionRequest struct {
+	Status     string `json:"status"`
+	Note       string `json:"note,omitempty"`
+	Resolution string `json:"resolution,omitempty"`
+	RowVersion int    `json:"row_version"`
+}
+
+type WorkItemStatusHistory struct {
+	WorkItemID string    `json:"work_item_id"`
+	FromStatus *string   `json:"from_status,omitempty"`
+	ToStatus   string    `json:"to_status"`
+	Note       *string   `json:"note,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+type FacetReviewDue struct {
+	NodeID    string     `json:"node_id"`
+	NodeLabel string     `json:"node_label"`
+	RoleKey   string     `json:"role_key"`
+	Readiness string     `json:"readiness"`
+	Status    string     `json:"status"`
+	DueDate   *time.Time `json:"due_date,omitempty"`
+}
+type ModuleBaseline struct {
+	ModuleID  string    `json:"module_id"`
+	Version   int       `json:"version"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type DecisionComment struct {
+	ID         string     `json:"id"`
+	WorkItemID *string    `json:"work_item_id,omitempty"`
+	Body       string     `json:"body"`
+	ResolvedAt *time.Time `json:"resolved_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+}
+type DerivedEvidence struct {
+	ID         string    `json:"id"`
+	Kind       string    `json:"kind"`
+	Label      string    `json:"label"`
+	WorkItemID *string   `json:"work_item_id,omitempty"`
+	NodeID     *string   `json:"node_id,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+type CommentRequest struct {
+	Body     string   `json:"body"`
+	ParentID *string  `json:"parent_id,omitempty"`
+	Mentions []string `json:"mentions,omitempty"`
+}
+
+type CommentUpdateRequest struct {
+	Body     *string `json:"body,omitempty"`
+	Resolved *bool   `json:"resolved,omitempty"`
 }

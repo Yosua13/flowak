@@ -27,6 +27,12 @@
   }
 }
 
+@layer components {
+  .input {
+    @apply w-full rounded-lg border border-white/10 bg-[#151517] px-3 py-2 text-sm text-white outline-none focus:border-[#C5A267];
+  }
+}
+
 /* Custom dark mode utility values */
 .dark {
   color-scheme: dark;

@@ -1,17 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../../store/useStore';
-import { Plus, LogOut, Folder, Trash2, LayoutGrid, Calendar, Layers, Activity, AlertCircle, Heart } from 'lucide-react';
+import { Plus, LogOut, Folder, Archive, RotateCcw, LayoutGrid, Calendar, Layers, Activity, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function ProjectHub() {
   const {
     projects,
+    archivedProjects,
     currentUser,
+    organizationRole,
     logoutUser,
     createProject,
     deleteProject,
+    restoreProject,
     selectProject,
     loadProjects,
+    loadArchivedProjects,
     dashboardStats
   } = useStore();
 
@@ -22,7 +26,8 @@ export default function ProjectHub() {
 
   useEffect(() => {
     loadProjects();
-  }, [loadProjects]);
+    loadArchivedProjects();
+  }, [loadProjects, loadArchivedProjects]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,7 +45,7 @@ export default function ProjectHub() {
 
   const handleDelete = (id: string, name: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const confirmed = window.confirm(`Apakah Anda yakin ingin menghapus proyek "${name}"? Seluruh modul alur kerja di dalamnya akan dihapus secara permanen.`);
+    const confirmed = window.confirm(`Arsipkan proyek "${name}"? Data tetap tersimpan dan dapat dipulihkan.`);
     if (confirmed) {
       deleteProject(id);
     }
@@ -69,7 +74,7 @@ export default function ProjectHub() {
           </div>
 
           <div className="flex items-center space-x-3">
-            {currentUser?.role === 'pm' && (
+            {organizationRole === 'owner' && (
               <button
                 onClick={() => setIsAdding(true)}
                 className="flex items-center space-x-1.5 px-4 py-2.5 bg-[#C5A267] hover:bg-[#B38F52] text-black text-xs font-bold uppercase tracking-wider rounded-xl shadow cursor-pointer transition"
@@ -228,9 +233,9 @@ export default function ProjectHub() {
                         <button
                           onClick={(e) => handleDelete(project.id, project.name, e)}
                           className="opacity-0 group-hover:opacity-100 p-1.5 rounded hover:bg-white/5 text-gray-500 hover:text-red-400 transition cursor-pointer"
-                          title="Hapus Proyek"
+                          title="Arsipkan Proyek"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Archive className="w-4 h-4" />
                         </button>
                       )}
                     </div>
@@ -257,6 +262,37 @@ export default function ProjectHub() {
             </div>
           )}
         </div>
+
+        {archivedProjects.length > 0 && (
+          <section className="space-y-4 border-t border-white/5 pt-8">
+            <div className="flex items-center justify-between text-left">
+              <h2 className="text-sm font-semibold text-gray-300 flex items-center gap-2">
+                <Archive className="w-4 h-4 text-gray-500" />
+                Proyek Diarsipkan
+              </h2>
+              <span className="text-[10px] text-gray-500 font-mono">{archivedProjects.length} proyek</span>
+            </div>
+            <div className="divide-y divide-white/5 border border-white/5 rounded-lg bg-[#111113]">
+              {archivedProjects.map((project) => (
+                <div key={project.id} className="flex items-center justify-between gap-4 p-4 text-left">
+                  <div className="min-w-0">
+                    <p className="text-sm text-gray-300 truncate">{project.name}</p>
+                    <p className="text-xs text-gray-600 truncate">{project.description || 'Tidak ada deskripsi proyek.'}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => restoreProject(project.id)}
+                    className="shrink-0 p-2 text-gray-400 hover:text-[#C5A267] hover:bg-white/5 rounded-md transition cursor-pointer"
+                    title="Pulihkan proyek"
+                    aria-label={`Pulihkan proyek ${project.name}`}
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );

@@ -77,6 +77,7 @@ func main() {
 		api.POST("/projects", handlers.CreateProjectHandler)
 		api.GET("/projects/:id", handlers.GetProjectDetailHandler)
 		api.DELETE("/projects/:id", handlers.DeleteProjectHandler)
+		api.POST("/projects/:id/restore", handlers.RestoreProjectHandler)
 
 		// Project Members
 		api.GET("/projects/:id/members", handlers.GetProjectMembersHandler)
@@ -88,6 +89,22 @@ func main() {
 		api.POST("/projects/:id/modules", handlers.CreateProjectModuleHandler)
 		api.PUT("/modules/:id", handlers.UpdateModuleHandler)
 		api.DELETE("/modules/:id", handlers.DeleteModuleHandler)
+
+		// Work items, comments, and execution history
+		api.GET("/projects/:id/work-items", handlers.ListWorkItemsHandler)
+		api.GET("/projects/:id/derived-view-data", handlers.GetDerivedViewDataHandler)
+		api.POST("/projects/:id/work-items", handlers.CreateWorkItemHandler)
+		api.GET("/work-items/:key", handlers.GetWorkItemHandler)
+		api.PATCH("/work-items/:key", handlers.UpdateWorkItemHandler)
+		api.POST("/work-items/:key/transitions", handlers.TransitionWorkItemHandler)
+		api.POST("/work-items/:key/comments", handlers.CreateWorkItemCommentHandler)
+		api.GET("/work-items/:key/comments", handlers.ListWorkItemCommentsHandler)
+		api.GET("/nodes/:id/comments", handlers.ListNodeCommentsHandler)
+		api.POST("/nodes/:id/comments", handlers.CreateNodeCommentHandler)
+		api.PATCH("/comments/:id", handlers.UpdateCommentHandler)
+
+		// Server-side only API contract execution; browser never calls targets directly.
+		api.POST("/api-requests/:id/runs", handlers.RunAPIRequestHandler)
 
 		// AI Proxies
 		api.POST("/ai/generate-flow", handlers.AiGenerateFlowHandler)
