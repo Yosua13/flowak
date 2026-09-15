@@ -92,6 +92,7 @@ func main() {
 
 		// Work items, comments, and execution history
 		api.GET("/projects/:id/work-items", handlers.ListWorkItemsHandler)
+		api.GET("/projects/:id/derived-view-data", handlers.GetDerivedViewDataHandler)
 		api.POST("/projects/:id/work-items", handlers.CreateWorkItemHandler)
 		api.GET("/work-items/:key", handlers.GetWorkItemHandler)
 		api.PATCH("/work-items/:key", handlers.UpdateWorkItemHandler)
