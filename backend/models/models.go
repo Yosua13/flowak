@@ -149,6 +149,42 @@ type WorkItemTransitionRequest struct {
 	RowVersion int    `json:"row_version"`
 }
 
+type WorkItemStatusHistory struct {
+	WorkItemID string    `json:"work_item_id"`
+	FromStatus *string   `json:"from_status,omitempty"`
+	ToStatus   string    `json:"to_status"`
+	Note       *string   `json:"note,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+type FacetReviewDue struct {
+	NodeID    string     `json:"node_id"`
+	NodeLabel string     `json:"node_label"`
+	RoleKey   string     `json:"role_key"`
+	Readiness string     `json:"readiness"`
+	Status    string     `json:"status"`
+	DueDate   *time.Time `json:"due_date,omitempty"`
+}
+type ModuleBaseline struct {
+	ModuleID  string    `json:"module_id"`
+	Version   int       `json:"version"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type DecisionComment struct {
+	ID         string     `json:"id"`
+	WorkItemID *string    `json:"work_item_id,omitempty"`
+	Body       string     `json:"body"`
+	ResolvedAt *time.Time `json:"resolved_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+}
+type DerivedEvidence struct {
+	ID         string    `json:"id"`
+	Kind       string    `json:"kind"`
+	Label      string    `json:"label"`
+	WorkItemID *string   `json:"work_item_id,omitempty"`
+	NodeID     *string   `json:"node_id,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
 type CommentRequest struct {
 	Body     string   `json:"body"`
 	ParentID *string  `json:"parent_id,omitempty"`
