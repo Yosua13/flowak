@@ -24,7 +24,7 @@ import {
   Kanban,
   Users
 } from 'lucide-react';
-import { exportToJson, exportToMarkdown, exportToOpenApi, exportToCsv } from '../services/exportService';
+import { exportToJson, exportToMarkdown, exportToOpenApi, exportToCsv, exportToCurl } from '../services/exportService';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function Topbar() {
@@ -274,6 +274,19 @@ export default function Topbar() {
                     <div>
                       <p className="font-semibold text-[11px] text-gray-200">Kontrak OpenAPI 3.1</p>
                       <p className="text-[9px] text-gray-500">File json siap pakai Swagger</p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => {
+                      exportToCurl(activeModule);
+                      setShowExportMenu(false);
+                    }}
+                    className="w-full text-left flex items-center space-x-2.5 px-3 py-2 text-xs text-gray-300 hover:bg-white/5 rounded-lg cursor-pointer transition mt-0.5 text-left"
+                  >
+                    <FileOutput className="w-3.5 h-3.5 text-sky-400 flex-shrink-0" />
+                    <div>
+                      <p className="font-semibold text-[11px] text-gray-200">cURL ter-redaksi</p>
+                      <p className="text-[9px] text-gray-500">Memakai variable, tanpa secret</p>
                     </div>
                   </button>
                 </div>
