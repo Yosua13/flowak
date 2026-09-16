@@ -128,9 +128,9 @@ func AiGenerateFlowHandler(c *gin.Context) {
 		return
 	}
 
-	// Fallback to offline demo flow if key is empty
+	// AI is advisory only; do not fabricate workflow data when the provider is unavailable.
 	if config.ActiveConfig.GeminiAPIKey == "" {
-		c.Data(http.StatusOK, "application/json", getOfflineDemoFlow(req.Prompt))
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI service is not configured; create the draft specification manually."})
 		return
 	}
 
@@ -165,11 +165,11 @@ Silakan buatkan struktur node proses bisnis dan edges sesuai dengan deskripsi te
 				"items": map[string]any{
 					"type": "OBJECT",
 					"properties": map[string]any{
-						"tempId":    map[string]any{"type": "STRING", "description": "ID sementara node (contoh: 'node_1', 'node_2')"},
-						"type":      map[string]any{"type": "STRING", "description": "Tipe node: 'terminator' | 'process' | 'decision' | 'actor' | 'system'"},
-						"label":     map[string]any{"type": "STRING", "description": "Label singkat representatif langkah alur (contoh: 'Validasi OTP')"},
-						"x":         map[string]any{"type": "NUMBER", "description": "Koordinat horizontal di kanvas (kisaran 100 s.d 1400)"},
-						"y":         map[string]any{"type": "NUMBER", "description": "Koordinat vertikal di kanvas (kisaran 100 s.d 800)"},
+						"tempId": map[string]any{"type": "STRING", "description": "ID sementara node (contoh: 'node_1', 'node_2')"},
+						"type":   map[string]any{"type": "STRING", "description": "Tipe node: 'terminator' | 'process' | 'decision' | 'actor' | 'system'"},
+						"label":  map[string]any{"type": "STRING", "description": "Label singkat representatif langkah alur (contoh: 'Validasi OTP')"},
+						"x":      map[string]any{"type": "NUMBER", "description": "Koordinat horizontal di kanvas (kisaran 100 s.d 1400)"},
+						"y":      map[string]any{"type": "NUMBER", "description": "Koordinat vertikal di kanvas (kisaran 100 s.d 800)"},
 						"doc": map[string]any{
 							"type":        "OBJECT",
 							"description": "Aspek analisis fungsional bisnis",
@@ -419,7 +419,7 @@ func AiMockPayloadHandler(c *gin.Context) {
 	// Fallback to offline mock response if key is empty
 	if config.ActiveConfig.GeminiAPIKey == "" {
 		c.JSON(http.StatusOK, gin.H{
-			"request": fmt.Sprintf("{\n  \"deviceId\": \"MOCK_DEVICE_ID\",\n  \"channel\": \"Web\",\n  \"action\": %q\n}", req.Label),
+			"request":  fmt.Sprintf("{\n  \"deviceId\": \"MOCK_DEVICE_ID\",\n  \"channel\": \"Web\",\n  \"action\": %q\n}", req.Label),
 			"response": fmt.Sprintf("{\n  \"success\": true,\n  \"timestamp\": %q,\n  \"data\": {\n    \"step\": %q,\n    \"actor\": %q,\n    \"simulated\": true\n  }\n}", time.Now().Format(time.RFC3339), req.Label, req.Actor),
 		})
 		return
@@ -463,20 +463,9 @@ func AiAuditFlowHandler(c *gin.Context) {
 		return
 	}
 
-	// Fallback to offline mock response if key is empty
+	// Never present synthetic audit findings as an actual audit result.
 	if config.ActiveConfig.GeminiAPIKey == "" {
-		c.Data(http.StatusOK, "application/json", []byte(`{
-			"score": 85,
-			"summary": "Audit offline demo dilakukan. Struktur modul valid namun integrasi AI sesungguhnya tidak aktif karena API KEY kosong.",
-			"issues": [
-				{
-					"severity": "warning",
-					"message": "Rancang deskripsi alur kerja yang mendalam untuk meningkatkan akurasi koding.",
-					"nodeName": "Evaluasi Awal",
-					"type": "Dokumentasi"
-				}
-			]
-		}`))
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI service is not configured; audit findings are unavailable."})
 		return
 	}
 
