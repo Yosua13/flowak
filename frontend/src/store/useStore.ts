@@ -116,6 +116,7 @@ interface AppStore {
   setSelectedNotif: (notif: NotificationItem | null) => void;
   markAllNotificationsRead: () => void;
   clearNotifications: () => void;
+  loadNotifications: () => Promise<void>;
 
   // Actions - AI & Extra modularity actions
   loadAiGeneratedFlow: (name: string, description: string, nodes: Node[], edges: Edge[]) => Promise<void>;
@@ -225,16 +226,7 @@ export const useStore = create<AppStore>((set, get) => ({
     if (activeProjectId) await get().selectProject(activeProjectId);
   },
   selectedNotif: null,
-  notifications: [
-    {
-      id: 'notif_1',
-      title: 'Selamat Datang!',
-      message: 'Aplikasi Flowak Anda siap digunakan. Silakan kelola alur kerja tim Anda.',
-      timestamp: new Date().toLocaleTimeString(),
-      read: false,
-      type: 'info',
-    }
-  ],
+  notifications: [],
 
   setScreen: (screen) => {
     set({ screen });
@@ -260,6 +252,7 @@ export const useStore = create<AppStore>((set, get) => ({
         await get().loadProjects();
         await get().loadArchivedProjects();
         await get().loadTeamMembers();
+        await get().loadNotifications();
       } catch {
         set({ screen: 'login' });
       }
@@ -311,6 +304,7 @@ export const useStore = create<AppStore>((set, get) => ({
       await get().loadProjects();
       await get().loadArchivedProjects();
       await get().loadTeamMembers();
+      await get().loadNotifications();
       return true;
     } catch (err) {
       get().addNotification('Gagal Masuk', 'Koneksi ke server terputus.', 'warning');
@@ -976,7 +970,7 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   // Notification Management Actions
-  addNotification: (title, message, type = 'info') => {
+  addNotification: (title, message, type: NotificationItem['type'] = 'info') => {
     const newNotif: NotificationItem = {
       id: `notif_${uid()}`,
       title,
@@ -1005,6 +999,7 @@ export const useStore = create<AppStore>((set, get) => ({
     set((state) => ({
       notifications: state.notifications.map((n) => ({ ...n, read: true })),
     }));
+    void apiClient.post('/notifications/read');
   },
 
   setSelectedNotif: (notif) => {
@@ -1013,6 +1008,10 @@ export const useStore = create<AppStore>((set, get) => ({
 
   clearNotifications: () => {
     set({ notifications: [] });
+  },
+  loadNotifications: async () => {
+    try { set({ notifications: await apiClient.get<NotificationItem[]>('/notifications') }); }
+    catch { /* Notification availability must not block the workspace. */ }
   },
 
   // AI & Extra modularity actions

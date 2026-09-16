@@ -93,6 +93,9 @@ func runMigrations() {
 	// Secure API contract builder and server-side runner.
 	runMigrationFromFile(DB, "10_api_contract_runner.sql")
 
+	// Collaboration events, immutable baselines, and notification outbox.
+	runMigrationFromFile(DB, "11_collaboration_events.sql")
+
 	log.Println("Migrations executed successfully.")
 }
 

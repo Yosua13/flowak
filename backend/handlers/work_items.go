@@ -463,11 +463,31 @@ func createComment(c *gin.Context, projectID, nodeID, workItemID string) {
 		}
 	}
 	id := "com_" + GenerateUUID()
-	_, err := db.DB.Exec(`INSERT INTO comments(id,project_id,module_id,node_id,work_item_id,parent_id,author_id,body,mentions) VALUES($1,$2,NULL,$3,NULLIF($4,''),$5,$6,$7,$8)`, id, projectID, nilIfEmpty(nodeID), workItemID, req.ParentID, userID, strings.TrimSpace(req.Body), string(mentions))
+	tx, err := db.DB.Begin()
+	if err != nil {
+		c.JSON(500, gin.H{"error": "failed to start comment transaction"})
+		return
+	}
+	defer tx.Rollback()
+	_, err = tx.Exec(`INSERT INTO comments(id,project_id,module_id,node_id,work_item_id,parent_id,author_id,body,mentions) VALUES($1,$2,NULL,$3,NULLIF($4,''),$5,$6,$7,$8)`, id, projectID, nilIfEmpty(nodeID), workItemID, req.ParentID, userID, strings.TrimSpace(req.Body), string(mentions))
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to create comment"})
 		return
 	}
+	if err := CreateMentionNotifications(tx, projectID, id, userID, req.Mentions); err != nil {
+		c.JSON(500, gin.H{"error": "failed to create mention notifications"})
+		return
+	}
+	event, err := writeCollaborationEvent(tx, projectID, "", userID, "comment.created", "comment:"+id, map[string]any{"comment_id": id, "work_item_id": workItemID, "node_id": nodeID})
+	if err != nil {
+		c.JSON(500, gin.H{"error": "failed to record comment event"})
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		c.JSON(500, gin.H{"error": "failed to commit comment"})
+		return
+	}
+	emitProjectEvent(projectID, event)
 	c.JSON(201, gin.H{"id": id, "body": strings.TrimSpace(req.Body)})
 }
 func nilIfEmpty(v string) any {
