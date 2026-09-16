@@ -7,14 +7,14 @@ import React, { useState } from 'react';
 import { Node, Status, HttpMethod, BackendFacet } from '../../domain/types';
 import { useStore } from '../../store/useStore';
 import { generateCurl } from '../../services/curl';
-import { Copy, Play, Check, AlertCircle, RefreshCw, Sparkles, Loader2 } from 'lucide-react';
+import { Copy, Play, Check, AlertCircle, RefreshCw } from 'lucide-react';
 
 interface BackendTabProps {
   node: Node;
 }
 
 export default function BackendTab({ node }: BackendTabProps) {
-  const { updateRole, teamMembers, addNotification, token } = useStore();
+  const { updateRole, teamMembers, addNotification } = useStore();
   const be: BackendFacet = node.roles?.backend || {
     assignee: '',
     status: 'planned',
@@ -33,8 +33,6 @@ export default function BackendTab({ node }: BackendTabProps) {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ code: string; body: string } | null>(null);
 
-  // AI mock contract state
-  const [aiGeneratingMock, setAiGeneratingMock] = useState(false);
 
   const handleFieldChange = (key: string, val: string) => {
     updateRole(node.id, 'backend', { [key]: val });
@@ -53,42 +51,6 @@ export default function BackendTab({ node }: BackendTabProps) {
     addNotification('Runner aman diperlukan', 'Request hanya dapat dijalankan oleh server-side API runner setelah contract dan environment disimpan.', 'info');
   };
 
-  // AI Generates Mock Request/Response Contracts
-  const handleGenerateMockData = async () => {
-    setAiGeneratingMock(true);
-    try {
-      const res = await fetch('/api/ai/mock-payload', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          actor: node.doc?.actor || 'Sistem',
-          label: node.label,
-          endpoint: be.endpoint || '/api/resource',
-          process: node.doc?.process || '',
-          method: be.method || 'GET',
-        }),
-      });
-
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-
-      // Save generated mockup database formats
-      updateRole(node.id, 'backend', {
-        request: be.method !== 'GET' ? data.request : '',
-        response: data.response || '{\n  "status": "success"\n}',
-      });
-
-      addNotification('Kontrak AI Sukses', `Payload request & response langkah "${node.label}" terisi otomatis.`, 'success');
-    } catch (err: any) {
-      console.error(err);
-      addNotification('Gagal mengambil AI payload', 'Menggunakan template data default lokal.', 'warning');
-    } finally {
-      setAiGeneratingMock(false);
-    }
-  };
 
   const beMembers = teamMembers.filter((m) => m.role === 'backend' || m.role === 'pm');
   const methods: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
@@ -115,20 +77,6 @@ export default function BackendTab({ node }: BackendTabProps) {
           </p>
         </div>
 
-        {/* AI Auto fill Mock button */}
-        <button
-          onClick={handleGenerateMockData}
-          disabled={aiGeneratingMock || !be.endpoint}
-          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#C5A267]/10 hover:bg-[#C5A267]/20 border border-[#C5A267]/35 text-[#C5A267] text-[10px] font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-          title="Isi otomatis request dan response menggunakan AI"
-        >
-          {aiGeneratingMock ? (
-            <Loader2 className="w-3 h-3 animate-spin text-[#C5A267]" />
-          ) : (
-            <Sparkles className="w-3 h-3 text-[#C5A267] animate-pulse" />
-          )}
-          <span>MOCK VIA AI</span>
-        </button>
       </div>
 
       <div className="space-y-3.5">

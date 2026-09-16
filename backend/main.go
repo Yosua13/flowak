@@ -113,7 +113,6 @@ func main() {
 
 		// AI Proxies
 		api.POST("/ai/generate-flow", handlers.AiGenerateFlowHandler)
-		api.POST("/ai/mock-payload", handlers.AiMockPayloadHandler)
 		api.POST("/ai/audit-flow", handlers.AiAuditFlowHandler)
 
 		// User / Contributor CRUD
