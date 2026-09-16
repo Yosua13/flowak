@@ -295,7 +295,7 @@ export default function Topbar() {
           </AnimatePresence>
         </div>
 
-        {/* Real-time Notifications Bell */}
+        {/* Persisted notification inbox */}
         <div className="relative" ref={notifRef}>
           <button
             onClick={() => {
@@ -331,19 +331,6 @@ export default function Topbar() {
                       className="text-[9px] text-gray-400 hover:text-red-400 cursor-pointer uppercase tracking-wider font-mono"
                     >
                       Hapus
-                    </button>
-                    <span className="text-white/10">|</span>
-                    <button
-                      onClick={() => {
-                        addNotification(
-                          'Simulasi Koordinasi',
-                          'Rian mengubah status UI/UX langkah Persetujuan Manager menjadi DONE!',
-                          'info'
-                        );
-                      }}
-                      className="text-[9px] text-[#C5A267] hover:text-[#E2C392] cursor-pointer uppercase tracking-wider font-mono font-bold"
-                    >
-                      Picu
                     </button>
                   </div>
                 </div>

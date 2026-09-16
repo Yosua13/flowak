@@ -244,11 +244,7 @@ export default function Sidebar() {
                       <p className="text-[9px] text-gray-500 uppercase tracking-wider">{member.role}</p>
                     </div>
                   </div>
-                  {/* Active gold dot helper */}
-                  <span className="flex h-2 w-2 relative">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#C5A267] opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-[#C5A267]"></span>
-                  </span>
+                  <span className="h-2 w-2 rounded-full bg-gray-600" title="Status presence tidak tersedia" />
                 </div>
               ))}
             </div>

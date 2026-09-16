@@ -92,6 +92,11 @@ func main() {
 
 		// Work items, comments, and execution history
 		api.GET("/projects/:id/work-items", handlers.ListWorkItemsHandler)
+		api.GET("/projects/:id/events", handlers.ProjectEventsHandler)
+		api.POST("/modules/:id/publish", handlers.PublishModuleBaselineHandler)
+		api.POST("/modules/:id/versions/:version/restore", handlers.RestoreModuleBaselineHandler)
+		api.GET("/notifications", handlers.ListNotificationsHandler)
+		api.POST("/notifications/read", handlers.MarkNotificationsReadHandler)
 		api.GET("/projects/:id/derived-view-data", handlers.GetDerivedViewDataHandler)
 		api.POST("/projects/:id/work-items", handlers.CreateWorkItemHandler)
 		api.GET("/work-items/:key", handlers.GetWorkItemHandler)
@@ -108,7 +113,6 @@ func main() {
 
 		// AI Proxies
 		api.POST("/ai/generate-flow", handlers.AiGenerateFlowHandler)
-		api.POST("/ai/mock-payload", handlers.AiMockPayloadHandler)
 		api.POST("/ai/audit-flow", handlers.AiAuditFlowHandler)
 
 		// User / Contributor CRUD
