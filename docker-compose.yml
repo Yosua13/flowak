@@ -1,0 +1,22 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: flowak:latest
+    container_name: flowak
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3001}:3001"
+    environment:
+      PORT: "3001"
+      APP_ENV: "${APP_ENV:-production}"
+      JWT_SECRET: "${JWT_SECRET:?Set JWT_SECRET to a random value of at least 32 characters}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:-http://localhost:3001,http://127.0.0.1:3001}"
+      DB_HOST: "${DB_HOST:-192.168.100.128}"
+      DB_PORT: "${DB_PORT:-5432}"
+      DB_USER: "${DB_USER:-postgres}"
+      DB_PASSWORD: "${DB_PASSWORD:?Set DB_PASSWORD in the deployment environment}"
+      DB_NAME: "${DB_NAME:-flowak}"
+      GIN_MODE: release
