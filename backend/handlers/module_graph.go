@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -742,27 +743,14 @@ func hydrateBusinessDetails(moduleID string, nodeIndex map[string]map[string]any
 	return outcomes.Err()
 }
 
-// ModuleGraphSnapshotMismatch is a read-only admin/backfill check. It compares
-// the deprecated JSON snapshot with a graph hydrated solely from normalized rows.
+// ModuleGraphSnapshotMismatch retains the previous boolean API for callers that
+// have not moved to the detailed reconciliation report yet.
 func ModuleGraphSnapshotMismatch(moduleID string) (bool, error) {
-	var nodesSnapshot, edgesSnapshot string
-	if err := db.DB.QueryRow("SELECT nodes, edges FROM modules WHERE id = $1", moduleID).Scan(&nodesSnapshot, &edgesSnapshot); err != nil {
+	report, err := ReconcileModuleGraph(context.Background(), moduleID)
+	if err != nil {
 		return false, err
 	}
-	normalized := models.Module{ID: moduleID}
-	if err := hydrateModuleGraph(&normalized); err != nil {
-		return false, err
-	}
-	return canonicalJSON(nodesSnapshot) != canonicalJSON(normalized.Nodes) || canonicalJSON(edgesSnapshot) != canonicalJSON(normalized.Edges), nil
-}
-
-func canonicalJSON(value string) string {
-	var decoded any
-	if json.Unmarshal([]byte(value), &decoded) != nil {
-		return value
-	}
-	encoded, _ := json.Marshal(decoded)
-	return string(encoded)
+	return !report.Matches, nil
 }
 
 func hydrateRoleTasks(moduleID string, nodeIndex map[string]map[string]any) error {
