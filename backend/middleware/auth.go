@@ -79,6 +79,12 @@ func AuthMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		var activeSession bool
+		if err := db.DB.QueryRow(`SELECT EXISTS(SELECT 1 FROM user_sessions WHERE id = $1 AND user_id = $2 AND organization_id = $3 AND revoked_at IS NULL AND expires_at > CURRENT_TIMESTAMP)`, claims.SessionID, claims.UserID, organizationID).Scan(&activeSession); err != nil || !activeSession {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Session is invalid or expired"})
+			c.Abort()
+			return
+		}
 		c.Set(string(OrganizationContextKey), organizationID)
 		c.Next()
 	}
