@@ -8,20 +8,17 @@ import { Module, Node, Edge, ID, NodeType, RoleKey, BusinessFacet, Status } from
 import { canAddEdge, addEdge as domainAddEdge, uid } from '../domain/invariants';
 import { TeamMember } from '../config/seedData';
 import { apiClient } from '../services/apiClient';
-import { saveGraphOptimistically, SaveStatus } from '../services/graphMutation';
+import { saveGraph, SaveStatus } from '../services/graphMutation';
+import { authService } from '../services/authService';
+import { projectsService } from '../services/projects';
+import { membersService } from '../services/members';
+import { notificationsService, type NotificationItem } from '../services/notifications';
 import { persistenceAdapter } from '../infra/persistence';
 
 export type AppView = 'canvas' | 'status' | 'doc' | 'calendar' | 'analytics' | 'kanban' | 'team';
 export type AppScreen = 'login' | 'register' | 'dashboard' | 'workspace';
 
-export interface NotificationItem {
-  id: string;
-  message: string;
-  timestamp: string;
-  read: boolean;
-  type: 'info' | 'success' | 'warning';
-  title: string;
-}
+export type { NotificationItem } from '../services/notifications';
 
 export interface ProjectItem {
   id: string;
@@ -146,25 +143,7 @@ const persistActiveModule = async (set: any, get: any, moduleId: ID) => {
 
   set({ saveStatus: 'saving' });
   try {
-    const response = await fetch(`/api/modules/${moduleId}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${latest.token}`
-      },
-      body: JSON.stringify({
-        nodes: activeMod.nodes,
-        edges: activeMod.edges,
-        deletedNodes: activeMod.deletedNodes || [],
-        deletedEdges: activeMod.deletedEdges || []
-      })
-    });
-    if (!response.ok) {
-      set({ saveStatus: response.status === 409 ? 'conflict' : 'failed' });
-      console.error('Failed to sync canvas updates to server:', await response.text());
-      return;
-    }
-    const result = await response.json();
+    const result = await saveGraph(activeMod, graphRequest?.signal);
     if (Array.isArray(result.nodes) && Array.isArray(result.edges)) {
       set((state: any) => ({
         modules: state.modules.map((module: Module) => module.id === moduleId
@@ -175,8 +154,10 @@ const persistActiveModule = async (set: any, get: any, moduleId: ID) => {
     } else {
       set({ saveStatus: 'saved' });
     }
-  } catch (err) {
-    set({ saveStatus: typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'failed' });
+  } catch (err: any) {
+    const rollback = confirmedGraphs.get(moduleId);
+    if (rollback) set((state: any) => ({ modules: state.modules.map((module: Module) => module.id === moduleId ? rollback : module) }));
+    set({ saveStatus: err?.code === 'conflict' ? 'conflict' : typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'failed' });
     console.error('Failed to sync canvas updates to server:', err);
   }
 };
@@ -238,10 +219,9 @@ export const useStore = create<AppStore>((set, get) => ({
 
     if (storedUser) {
       try {
-        const refresh = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' });
-        if (!refresh.ok) throw new Error('session expired');
-        const session = await refresh.json();
+        const session = await authService.refresh();
         const parsedUser = session.user;
+        apiClient.setToken(session.token);
         set({
           token: session.token,
           currentUser: parsedUser,
@@ -277,17 +257,7 @@ export const useStore = create<AppStore>((set, get) => ({
   // Authentication Actions
   loginUser: async (email, password) => {
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        get().addNotification('Gagal Masuk', data.error || 'Autentikasi gagal', 'warning');
-        return false;
-      }
+      const data = await authService.login(email, password);
 
       apiClient.setToken(data.token);
       localStorage.setItem('flowak_user', JSON.stringify(data.user));
@@ -314,17 +284,7 @@ export const useStore = create<AppStore>((set, get) => ({
 
   registerUser: async (name, email, password, role) => {
     try {
-      const res = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password, role })
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        get().addNotification('Gagal Mendaftar', data.error || 'Registrasi gagal', 'warning');
-        return false;
-      }
+      await authService.register(name, email, password, role);
 
       get().addNotification('Registrasi Sukses', 'Akun berhasil dibuat. Silakan masuk.', 'success');
       set({ screen: 'login' });
@@ -336,7 +296,8 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   logoutUser: () => {
-    void fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+    void authService.logout();
+    apiClient.setToken(null);
     localStorage.removeItem('flowak_user');
 
     set({
@@ -363,11 +324,8 @@ export const useStore = create<AppStore>((set, get) => ({
     if (!token) return;
 
     try {
-      const res = await fetch('/api/projects', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
+      const data = await projectsService.list();
+      if (data) {
         set({ projects: data });
         // Fetch dashboard stats as well
         get().loadDashboardStats();
@@ -382,12 +340,7 @@ export const useStore = create<AppStore>((set, get) => ({
     if (!token) return;
 
     try {
-      const res = await fetch('/api/projects?status=archived', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        set({ archivedProjects: await res.json() });
-      }
+      set({ archivedProjects: await projectsService.list('archived') });
     } catch (err) {
       console.error('Failed to load archived projects:', err);
     }
@@ -398,24 +351,10 @@ export const useStore = create<AppStore>((set, get) => ({
     if (!token) return false;
 
     try {
-      const res = await fetch('/api/projects', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ name, description })
-      });
-
-      const data = await res.json();
-      if (res.ok) {
-        get().addNotification('Proyek Dibuat', `Proyek "${name}" berhasil ditambahkan.`, 'success');
-        await get().loadProjects();
-        return true;
-      } else {
-        get().addNotification('Gagal Membuat Proyek', data.error || 'Terjadi kesalahan', 'warning');
-        return false;
-      }
+      await projectsService.create(name, description);
+      get().addNotification('Proyek Dibuat', `Proyek "${name}" berhasil ditambahkan.`, 'success');
+      await get().loadProjects();
+      return true;
     } catch (err) {
       get().addNotification('Gagal Membuat Proyek', 'Koneksi ke server terputus.', 'warning');
       return false;
@@ -427,15 +366,10 @@ export const useStore = create<AppStore>((set, get) => ({
     if (!token) return;
 
     try {
-      const res = await fetch(`/api/projects/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
+      await projectsService.archive(id);
 		get().addNotification('Proyek Diarsipkan', 'Proyek dapat dipulihkan dari daftar arsip.', 'warning');
         await get().loadProjects();
 		await get().loadArchivedProjects();
-      }
     } catch (err) {
       console.error('Failed to delete project:', err);
     }
@@ -446,15 +380,7 @@ export const useStore = create<AppStore>((set, get) => ({
     if (!token) return;
 
     try {
-      const res = await fetch(`/api/projects/${id}/restore`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        get().addNotification('Gagal Memulihkan Proyek', data.error || 'Terjadi kesalahan', 'warning');
-        return;
-      }
+      await projectsService.restore(id);
       get().addNotification('Proyek Dipulihkan', 'Proyek kembali tersedia di workspace.', 'success');
       await get().loadProjects();
       await get().loadArchivedProjects();
@@ -483,19 +409,9 @@ export const useStore = create<AppStore>((set, get) => ({
     try {
       projectRequest?.abort();
       projectRequest = apiClient.abortable();
-      const res = await fetch(`/api/projects/${projectId}`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-        signal: projectRequest.signal,
-      });
-      if (res.ok) {
-        const data = await res.json();
-        
-        // Parse modules nodes and edges from string back to JSON objects
-        const parsedModules = data.modules.map((m: any) => ({
-          ...m,
-          nodes: typeof m.nodes === 'string' ? JSON.parse(m.nodes) : m.nodes,
-          edges: typeof m.edges === 'string' ? JSON.parse(m.edges) : m.edges
-        }));
+      const data = await projectsService.detail(projectId, projectRequest.signal);
+      if (data) {
+        const parsedModules = data.modules;
         parsedModules.forEach((module: Module) => confirmedGraphs.set(module.id, module));
 
         set({
@@ -523,39 +439,11 @@ export const useStore = create<AppStore>((set, get) => ({
     if (!token || !activeProjectId) return null;
 
     try {
-      const res = await fetch(`/api/projects/${activeProjectId}/modules`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ name, description })
-      });
-
-      const data = await res.json();
-      if (res.ok) {
-        get().addNotification('Modul Ditambahkan', `Modul "${name}" berhasil dibuat.`, 'success');
-        
-        // Reload modules
-        const modRes = await fetch(`/api/projects/${activeProjectId}/modules`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (modRes.ok) {
-          const modData = await modRes.json();
-          const parsedModules = modData.map((m: any) => ({
-            ...m,
-            nodes: typeof m.nodes === 'string' ? JSON.parse(m.nodes) : m.nodes,
-            edges: typeof m.edges === 'string' ? JSON.parse(m.edges) : m.edges
-          }));
-          set({
-            modules: parsedModules,
-            activeId: data.module_id,
-            selectedNodeId: null
-          });
-        }
-        return data.module_id;
-      }
-      return null;
+      const data = await projectsService.createModule(activeProjectId, { name, description });
+      get().addNotification('Modul Ditambahkan', `Modul "${name}" berhasil dibuat.`, 'success');
+      const parsedModules = await projectsService.listModules(activeProjectId);
+      set({ modules: parsedModules, activeId: data.module_id, selectedNodeId: null });
+      return data.module_id;
     } catch (err) {
       console.error('Failed to add module:', err);
       return null;
@@ -567,23 +455,13 @@ export const useStore = create<AppStore>((set, get) => ({
     if (!token || !activeProjectId) return;
 
     try {
-      const res = await fetch(`/api/modules/${id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ name, description })
+      await projectsService.renameModule(id, name, description);
+      set((state) => {
+        const updated = state.modules.map((m) =>
+          m.id === id ? { ...m, name, description: description !== undefined ? description : m.description } : m
+        );
+        return { modules: updated };
       });
-
-      if (res.ok) {
-        set((state) => {
-          const updated = state.modules.map((m) =>
-            m.id === id ? { ...m, name, description: description !== undefined ? description : m.description } : m
-          );
-          return { modules: updated };
-        });
-      }
     } catch (err) {
       console.error('Failed to rename module:', err);
     }
@@ -594,13 +472,8 @@ export const useStore = create<AppStore>((set, get) => ({
     if (!token || !activeProjectId) return;
 
     try {
-      const res = await fetch(`/api/modules/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      if (res.ok) {
-        get().addNotification('Modul Dihapus', 'Modul berhasil dihapus secara permanen.', 'warning');
+      await projectsService.deleteModule(id);
+      get().addNotification('Modul Dihapus', 'Modul berhasil dihapus secara permanen.', 'warning');
         
         set((state) => {
           const updated = state.modules.filter((m) => m.id !== id);
@@ -611,7 +484,6 @@ export const useStore = create<AppStore>((set, get) => ({
             selectedNodeId: null
           };
         });
-      }
     } catch (err) {
       console.error('Failed to delete module:', err);
     }
@@ -999,7 +871,7 @@ export const useStore = create<AppStore>((set, get) => ({
     set((state) => ({
       notifications: state.notifications.map((n) => ({ ...n, read: true })),
     }));
-    void apiClient.post('/notifications/read');
+    void notificationsService.markAllRead();
   },
 
   setSelectedNotif: (notif) => {
@@ -1010,7 +882,7 @@ export const useStore = create<AppStore>((set, get) => ({
     set({ notifications: [] });
   },
   loadNotifications: async () => {
-    try { set({ notifications: await apiClient.get<NotificationItem[]>('/notifications') }); }
+    try { set({ notifications: await notificationsService.list() }); }
     catch { /* Notification availability must not block the workspace. */ }
   },
 
@@ -1054,42 +926,10 @@ export const useStore = create<AppStore>((set, get) => ({
     }
 
     try {
-      const res = await fetch(`/api/projects/${activeProjectId}/modules`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          name: mod.name,
-          description: mod.description || '',
-          nodes: mod.nodes,
-          edges: mod.edges || []
-        })
-      });
-
-      const data = await res.json();
-      if (res.ok) {
-        get().addNotification('Modul Diimpor', `Modul "${mod.name}" berhasil diimpor.`, 'success');
-        
-        // Reload modules
-        const modRes = await fetch(`/api/projects/${activeProjectId}/modules`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (modRes.ok) {
-          const modData = await modRes.json();
-          const parsedModules = modData.map((m: any) => ({
-            ...m,
-            nodes: typeof m.nodes === 'string' ? JSON.parse(m.nodes) : m.nodes,
-            edges: typeof m.edges === 'string' ? JSON.parse(m.edges) : m.edges
-          }));
-          set({
-            modules: parsedModules,
-            activeId: data.module_id,
-            selectedNodeId: null
-          });
-        }
-      }
+      const data = await projectsService.createModule(activeProjectId, { name: mod.name, description: mod.description || '', nodes: mod.nodes, edges: mod.edges || [] });
+      get().addNotification('Modul Diimpor', `Modul "${mod.name}" berhasil diimpor.`, 'success');
+      const parsedModules = await projectsService.listModules(activeProjectId);
+      set({ modules: parsedModules, activeId: data.module_id, selectedNodeId: null });
     } catch (err) {
       console.error('Failed to import module:', err);
     }
@@ -1101,13 +941,7 @@ export const useStore = create<AppStore>((set, get) => ({
     if (!token) return;
 
     try {
-      const res = await fetch('/api/users', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        set({ teamMembers: data });
-      }
+      set({ teamMembers: await membersService.listTeam() });
     } catch (err) {
       console.error('Failed to load team members:', err);
     }
@@ -1118,23 +952,10 @@ export const useStore = create<AppStore>((set, get) => ({
     if (!token) return;
 
     try {
-      const res = await fetch('/api/users', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ name, email, role })
-      });
-
-      const data = await res.json();
-      if (res.ok) {
+      const data = await membersService.createTeamMember(name, email, role);
         const tempPassword = data.temporary_password ? ` Password sementara: ${data.temporary_password}` : '';
         get().addNotification('Anggota Tim Ditambahkan', `${name} dimasukkan ke daftar kontributor.${tempPassword}`, 'success');
         await get().loadTeamMembers();
-      } else {
-        get().addNotification('Gagal Menambahkan Anggota', data.error || 'Terjadi kesalahan', 'warning');
-      }
     } catch (err) {
       get().addNotification('Gagal Menambahkan Anggota', 'Koneksi ke server terputus.', 'warning');
     }
@@ -1150,18 +971,9 @@ export const useStore = create<AppStore>((set, get) => ({
     }
 
     try {
-      const res = await fetch(`/api/users/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      const data = await res.json();
-      if (res.ok) {
+      await membersService.deleteTeamMember(id);
         get().addNotification('Anggota Tim Dihentikan', 'Kontributor telah dihapus.', 'warning');
         await get().loadTeamMembers();
-      } else {
-        get().addNotification('Gagal Mengeluarkan Anggota', data.error || 'Terjadi kesalahan', 'warning');
-      }
     } catch (err) {
       get().addNotification('Gagal Mengeluarkan Anggota', 'Koneksi ke server terputus.', 'warning');
     }
@@ -1172,13 +984,7 @@ export const useStore = create<AppStore>((set, get) => ({
     if (!token || !activeProjectId) return;
 
     try {
-      const res = await fetch(`/api/projects/${activeProjectId}/members`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        set({ projectMembers: data });
-      }
+      set({ projectMembers: await membersService.listProjectMembers(activeProjectId) });
     } catch (err) {
       console.error('Failed to load project members:', err);
     }
@@ -1189,24 +995,10 @@ export const useStore = create<AppStore>((set, get) => ({
     if (!token || !activeProjectId) return false;
 
     try {
-      const res = await fetch(`/api/projects/${activeProjectId}/members`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ user_id: userId })
-      });
-
-      const data = await res.json();
-      if (res.ok) {
+      await membersService.addProjectMember(activeProjectId, userId);
         get().addNotification('Anggota Ditambahkan', 'Anggota tim berhasil ditambahkan ke proyek.', 'success');
         await get().loadProjectMembers();
         return true;
-      } else {
-        get().addNotification('Gagal Menambahkan Anggota', data.error || 'Terjadi kesalahan', 'warning');
-        return false;
-      }
     } catch (err) {
       get().addNotification('Gagal Menambahkan Anggota', 'Koneksi ke server terputus.', 'warning');
       return false;
@@ -1218,20 +1010,10 @@ export const useStore = create<AppStore>((set, get) => ({
     if (!token || !activeProjectId) return false;
 
     try {
-      const res = await fetch(`/api/projects/${activeProjectId}/members/${userId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      const data = await res.json();
-      if (res.ok) {
+      await membersService.deleteProjectMember(activeProjectId, userId);
         get().addNotification('Anggota Dihapus', 'Anggota tim telah dihapus dari proyek.', 'warning');
         await get().loadProjectMembers();
         return true;
-      } else {
-        get().addNotification('Gagal Menghapus Anggota', data.error || 'Terjadi kesalahan', 'warning');
-        return false;
-      }
     } catch (err) {
       get().addNotification('Gagal Menghapus Anggota', 'Koneksi ke server terputus.', 'warning');
       return false;
@@ -1243,13 +1025,8 @@ export const useStore = create<AppStore>((set, get) => ({
     if (!token) return;
 
     try {
-      const res = await fetch('/api/users/dashboard-stats', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        set({ dashboardStats: data });
-      }
+      const data = await membersService.dashboard();
+      set({ dashboardStats: { myTasksCount: data.my_tasks_count, completionRate: data.completion_rate } });
     } catch (err) {
       console.error('Failed to load dashboard stats:', err);
     }
