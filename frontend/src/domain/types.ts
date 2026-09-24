@@ -161,6 +161,22 @@ export interface WorkItem {
   updated_at?: string;
 }
 
+export interface WorkItemChecklistEntry {
+  id: ID; body: string; is_complete: boolean; sort_order: number; created_at: string; updated_at: string;
+}
+
+export interface WorkItemWatcher { user_id: ID; name: string; created_at: string; }
+export interface WorkItemLink { id: ID; linked_work_item_id: ID; linked_key: string; link_type: 'relates_to' | 'blocks' | 'depends_on'; created_at: string; }
+export interface WorkItemAttachment { id: ID; file_name: string; content_type?: string; storage_key: string; size_bytes?: number; uploaded_by: ID; created_at: string; }
+export interface WorkItemArtifacts {
+  checklist: WorkItemChecklistEntry[];
+  watchers: WorkItemWatcher[];
+  links: WorkItemLink[];
+  attachments: WorkItemAttachment[];
+  comment_count: number;
+  attachment_count: number;
+}
+
 export interface NodeComment {
   id: ID;
   parent_id?: ID;
