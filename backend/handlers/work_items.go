@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -14,12 +15,45 @@ import (
 	"backend/middleware"
 	"backend/models"
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 )
 
 var workItemTypes = map[string]bool{"Story": true, "Task": true, "Bug": true, "Review": true, "Research": true, "Subtask": true}
 var workItemStatuses = map[string]bool{"Backlog": true, "Ready": true, "In Progress": true, "In Review": true, "Blocked": true, "Done": true, "Canceled": true}
 var workItemPriorities = map[string]bool{"low": true, "medium": true, "high": true, "critical": true}
 var allowedPoints = map[int]bool{1: true, 2: true, 3: true, 5: true, 8: true, 13: true}
+
+type workItemCursor struct {
+	Project  string `json:"project"`
+	Sort     string `json:"sort"`
+	Filter   string `json:"filter"`
+	Sequence int64  `json:"sequence"`
+	Ceiling  int64  `json:"ceiling"`
+}
+
+func workItemFilterKey(status, assignee, nodeID string) string {
+	data, _ := json.Marshal([]string{status, assignee, nodeID})
+	return string(data)
+}
+
+func encodeWorkItemCursor(cursor workItemCursor) string {
+	data, _ := json.Marshal(cursor)
+	return base64.RawURLEncoding.EncodeToString(data)
+}
+
+func decodeWorkItemCursor(raw string, cursor *workItemCursor) error {
+	data, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil || len(data) > 1024 {
+		return fmt.Errorf("invalid cursor")
+	}
+	if err := json.Unmarshal(data, cursor); err != nil {
+		return err
+	}
+	if cursor.Sequence < 1 || cursor.Ceiling < cursor.Sequence {
+		return fmt.Errorf("invalid cursor sequence")
+	}
+	return nil
+}
 
 func validationError(c *gin.Context, message string) {
 	c.JSON(http.StatusBadRequest, gin.H{"error": message, "error_code": "validation_error"})
@@ -96,6 +130,27 @@ const transitionWorkItemSQL = `UPDATE work_items SET status=$1::varchar,blocked_
 
 func getWorkItem(key string) (models.WorkItem, error) {
 	return scanWorkItem(db.DB.QueryRow(`SELECT `+workItemFields+` FROM work_items WHERE work_key=$1 AND deleted_at IS NULL`, key))
+}
+
+func workItemDeliveryChanges(before models.WorkItem, after models.WorkItemRequest) (map[string]any, map[string]any) {
+	oldValues, newValues := map[string]any{}, map[string]any{}
+	compare := func(field string, oldValue, newValue any) {
+		oldJSON, _ := json.Marshal(oldValue)
+		newJSON, _ := json.Marshal(newValue)
+		if string(oldJSON) != string(newJSON) {
+			oldValues[field], newValues[field] = oldValue, newValue
+		}
+	}
+	compare("assignee_id", before.AssigneeID, after.AssigneeID)
+	compare("points", before.Points, after.Points)
+	compare("parent_id", before.ParentID, after.ParentID)
+	var dueDate *string
+	if before.DueDate != nil {
+		value := before.DueDate.Format("2006-01-02")
+		dueDate = &value
+	}
+	compare("due_date", dueDate, after.DueDate)
+	return oldValues, newValues
 }
 
 func validateWorkItemReferences(tx *sql.Tx, projectID string, req *models.WorkItemRequest) error {
@@ -217,6 +272,12 @@ func ListWorkItemsHandler(c *gin.Context) {
 		}
 		limit = n
 	}
+	pageMode := c.Query("page") == "1"
+	sortOrder := c.DefaultQuery("sort", "newest")
+	if sortOrder != "newest" && sortOrder != "oldest" {
+		validationError(c, "sort must be newest or oldest")
+		return
+	}
 	args := []any{projectID}
 	where := "project_id=$1 AND deleted_at IS NULL"
 	for _, filter := range []struct{ value, column string }{{status, "status"}, {assignee, "assignee_id"}, {nodeID, "node_id"}} {
@@ -225,30 +286,87 @@ func ListWorkItemsHandler(c *gin.Context) {
 			where += fmt.Sprintf(" AND %s=$%d", filter.column, len(args))
 		}
 	}
-	if cursor := c.Query("cursor"); cursor != "" {
-		n, err := strconv.ParseInt(cursor, 10, 64)
-		if err != nil {
+	var cursor workItemCursor
+	if pageMode {
+		if raw := c.Query("cursor"); raw != "" {
+			if err := decodeWorkItemCursor(raw, &cursor); err != nil || cursor.Project != projectID || cursor.Sort != sortOrder || cursor.Filter != workItemFilterKey(status, assignee, nodeID) {
+				validationError(c, "invalid cursor for sort or filters")
+				return
+			}
+		} else {
+			cursor.Project, cursor.Sort, cursor.Filter = projectID, sortOrder, workItemFilterKey(status, assignee, nodeID)
+			if err := db.DB.QueryRow(`SELECT COALESCE(MAX(sequence),0) FROM work_items WHERE project_id=$1`, projectID).Scan(&cursor.Ceiling); err != nil {
+				c.JSON(500, gin.H{"error": "failed to initialize pagination"})
+				return
+			}
+		}
+		args = append(args, cursor.Ceiling)
+		where += fmt.Sprintf(" AND sequence <= $%d", len(args))
+		if cursor.Sequence > 0 {
+			args = append(args, cursor.Sequence)
+			operator := "<"
+			if sortOrder == "oldest" {
+				operator = ">"
+			}
+			where += fmt.Sprintf(" AND sequence %s $%d", operator, len(args))
+		}
+	} else if raw := c.Query("cursor"); raw != "" {
+		n, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || n < 1 {
 			validationError(c, "invalid cursor")
 			return
 		}
 		args = append(args, n)
-		where += fmt.Sprintf(" AND sequence < $%d", len(args))
+		operator := "<"
+		if sortOrder == "oldest" {
+			operator = ">"
+		}
+		where += fmt.Sprintf(" AND sequence %s $%d", operator, len(args))
 	}
-	args = append(args, limit)
-	rows, err := db.DB.Query(`SELECT `+workItemFields+` FROM work_items WHERE `+where+` ORDER BY sequence DESC LIMIT $`+strconv.Itoa(len(args)), args...)
+	queryLimit := limit
+	if pageMode {
+		queryLimit++
+	}
+	args = append(args, queryLimit)
+	direction := "DESC"
+	if sortOrder == "oldest" {
+		direction = "ASC"
+	}
+	rows, err := db.DB.Query(`SELECT sequence,`+workItemFields+` FROM work_items WHERE `+where+` ORDER BY sequence `+direction+` LIMIT $`+strconv.Itoa(len(args)), args...)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to list work items"})
 		return
 	}
 	defer rows.Close()
 	items := []models.WorkItem{}
+	var lastSequence int64
+	hasMore := false
 	for rows.Next() {
 		var i models.WorkItem
-		if err := rows.Scan(&i.ID, &i.Key, &i.ProjectID, &i.ModuleID, &i.NodeID, &i.FacetKey, &i.ParentID, &i.Type, &i.Title, &i.Description, &i.Priority, &i.Points, &i.Status, &i.AssigneeID, &i.ReporterID, &i.StartDate, &i.DueDate, &i.BlockedReason, &i.Resolution, &i.RowVersion, &i.CreatedAt, &i.UpdatedAt); err != nil {
+		var sequence int64
+		if err := rows.Scan(&sequence, &i.ID, &i.Key, &i.ProjectID, &i.ModuleID, &i.NodeID, &i.FacetKey, &i.ParentID, &i.Type, &i.Title, &i.Description, &i.Priority, &i.Points, &i.Status, &i.AssigneeID, &i.ReporterID, &i.StartDate, &i.DueDate, &i.BlockedReason, &i.Resolution, &i.RowVersion, &i.CreatedAt, &i.UpdatedAt); err != nil {
 			c.JSON(500, gin.H{"error": "failed to parse work item"})
 			return
 		}
-		items = append(items, i)
+		if len(items) < limit {
+			items = append(items, i)
+			lastSequence = sequence
+		} else {
+			hasMore = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		c.JSON(500, gin.H{"error": "failed to list work items"})
+		return
+	}
+	if pageMode {
+		cursor.Sequence = lastSequence
+		next := ""
+		if hasMore {
+			next = encodeWorkItemCursor(cursor)
+		}
+		c.JSON(200, gin.H{"items": items, "next_cursor": next, "sort": sortOrder})
+		return
 	}
 	c.JSON(200, items)
 }
@@ -281,9 +399,21 @@ func UpdateWorkItemHandler(c *gin.Context) {
 		return
 	}
 	var req models.WorkItemRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBindBodyWith(&req, binding.JSON); err != nil {
 		validationError(c, "invalid request body")
 		return
+	}
+	var supplied map[string]json.RawMessage
+	if cached, ok := c.Get(gin.BodyBytesKey); ok {
+		if raw, ok := cached.([]byte); ok {
+			_ = json.Unmarshal(raw, &supplied)
+		}
+	}
+	// A supplied null clears nullable delivery fields; an omitted field keeps its value.
+	wasCleared := func(field string) bool {
+		raw, ok := supplied[field]
+		value := strings.TrimSpace(string(raw))
+		return ok && (value == "null" || value == `""`)
 	}
 	if req.RowVersion < 1 {
 		validationError(c, "row_version is required")
@@ -315,14 +445,23 @@ func UpdateWorkItemHandler(c *gin.Context) {
 	if req.ParentID == nil {
 		req.ParentID = item.ParentID
 	}
+	if wasCleared("parent_id") {
+		req.ParentID = nil
+	}
 	if req.Description == nil {
 		req.Description = item.Description
 	}
 	if req.Points == nil {
 		req.Points = item.Points
 	}
+	if wasCleared("points") {
+		req.Points = nil
+	}
 	if req.AssigneeID == nil {
 		req.AssigneeID = item.AssigneeID
+	}
+	if wasCleared("assignee_id") {
+		req.AssigneeID = nil
 	}
 	if req.BlockedReason == nil {
 		req.BlockedReason = item.BlockedReason
@@ -337,6 +476,9 @@ func UpdateWorkItemHandler(c *gin.Context) {
 	if req.DueDate == nil && item.DueDate != nil {
 		value := item.DueDate.Format("2006-01-02")
 		req.DueDate = &value
+	}
+	if wasCleared("due_date") {
+		req.DueDate = nil
 	}
 	if err := validWorkItemInput(req, false); err != nil {
 		validationError(c, err.Error())
@@ -374,7 +516,15 @@ func UpdateWorkItemHandler(c *gin.Context) {
 		c.JSON(409, gin.H{"error": "work item has changed", "error_code": "work_item_version_conflict"})
 		return
 	}
-	_, err = tx.Exec(`INSERT INTO activity_logs(id,project_id,actor_id,action,entity_type,entity_id,after_data) VALUES($1,$2,$3,'updated','work_item',$4,jsonb_build_object('row_version',$5))`, "act_"+GenerateUUID(), item.ProjectID, func() string { id, _ := middleware.GetUserID(c); return id }(), item.ID, req.RowVersion+1)
+	beforeChanges, afterChanges := workItemDeliveryChanges(item, req)
+	beforeJSON, _ := json.Marshal(beforeChanges)
+	afterJSON, _ := json.Marshal(afterChanges)
+	activityAction := "updated"
+	if len(afterChanges) > 0 {
+		activityAction = "delivery_fields_changed"
+	}
+	actorID, _ := middleware.GetUserID(c)
+	_, err = tx.Exec(`INSERT INTO activity_logs(id,project_id,actor_id,action,entity_type,entity_id,before_data,after_data) VALUES($1,$2,$3,$4,'work_item',$5,$6::jsonb,$7::jsonb)`, "act_"+GenerateUUID(), item.ProjectID, actorID, activityAction, item.ID, string(beforeJSON), string(afterJSON))
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to record work item activity"})
 		return
