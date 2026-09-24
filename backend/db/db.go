@@ -115,6 +115,10 @@ func runMigrations() {
 	// Collaboration events, immutable baselines, and notification outbox.
 	runMigrationFromFile(DB, "11_collaboration_events.sql")
 
+	// Keep transition audit history compatible with databases created before
+	// from_status was recorded for every Kanban move.
+	runMigrationFromFile(DB, "12_work_item_transition_history_compatibility.sql")
+
 	log.Println("Migrations executed successfully.")
 }
 

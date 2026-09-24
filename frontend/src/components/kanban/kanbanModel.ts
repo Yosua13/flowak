@@ -2,6 +2,21 @@ import type { WorkItem, WorkItemStatus } from '../../domain/types';
 
 export const BOARD_STATUSES: WorkItemStatus[] = ['Backlog', 'Ready', 'In Progress', 'In Review', 'Blocked', 'Done'];
 
+const STATUS_TRANSITIONS: Partial<Record<WorkItemStatus, WorkItemStatus[]>> = {
+  Backlog: ['Ready'],
+  Ready: ['In Progress', 'Blocked'],
+  'In Progress': ['Ready', 'In Review', 'Blocked'],
+  'In Review': ['In Progress', 'Blocked', 'Done'],
+  Blocked: ['Ready', 'In Progress'],
+  Done: [],
+  Canceled: [],
+};
+
+/** Mirrors the server workflow so invalid drops never make a failing request. */
+export function canTransitionWorkItem(from: WorkItemStatus, to: WorkItemStatus): boolean {
+  return from === to || Boolean(STATUS_TRANSITIONS[from]?.includes(to));
+}
+
 export interface KanbanFilters {
   search: string;
   moduleId: string;

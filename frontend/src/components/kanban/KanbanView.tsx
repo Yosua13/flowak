@@ -3,7 +3,7 @@ import { AlertTriangle, Archive, CalendarDays, ChevronLeft, ChevronRight, Circle
 import type { WorkItem, WorkItemStatus, WorkItemType } from '../../domain/types';
 import { useStore } from '../../store/useStore';
 import { workItemsApi, type WorkItemInput } from '../../services/workItems';
-import { BOARD_STATUSES, columnMetrics, filterWorkItems, itemByKey, type KanbanFilters } from './kanbanModel';
+import { BOARD_STATUSES, canTransitionWorkItem, columnMetrics, filterWorkItems, itemByKey, type KanbanFilters } from './kanbanModel';
 
 const statusTone: Record<WorkItemStatus, string> = { Backlog: 'border-gray-500', Ready: 'border-cyan-500', 'In Progress': 'border-blue-500', 'In Review': 'border-violet-500', Blocked: 'border-rose-500', Done: 'border-emerald-500', Canceled: 'border-gray-700' };
 const types: WorkItemType[] = ['Story', 'Task', 'Bug', 'Review', 'Research', 'Subtask'];
@@ -18,6 +18,8 @@ export default function KanbanView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [dragOver, setDragOver] = useState<WorkItemStatus | null>(null);
+  const [draggedKey, setDraggedKey] = useState<string | null>(null);
+  const [transitioningKey, setTransitioningKey] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [filters, setFilters] = useState<KanbanFilters>({ search: '', moduleId: activeId || 'all', assigneeId: 'all', type: 'all', facet: 'all', priority: 'all', includeCanceled: false });
   const nodes = useMemo<BoardNode[]>(() => modules.flatMap((module) => module.nodes.map((node) => ({ ...node, moduleId: module.id }))), [modules]);
@@ -36,11 +38,16 @@ export default function KanbanView() {
 
   const transition = async (item: WorkItem, status: WorkItemStatus) => {
     if (item.status === status) return;
+    if (!canTransitionWorkItem(item.status, status)) {
+      store.addNotification('Perpindahan Tidak Diizinkan', `${item.status} hanya dapat dipindahkan ke tahap berikutnya sesuai alur kerja.`, 'warning');
+      return;
+    }
     let note = '';
     if (status === 'Blocked') note = window.prompt('Tuliskan alasan task diblokir:')?.trim() || '';
     if (status === 'Done') note = window.prompt('Tuliskan resolusi penyelesaian:')?.trim() || '';
     if ((status === 'Blocked' || status === 'Done') && !note) return;
     const previous = items;
+    setTransitioningKey(item.key);
     setItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, status } : candidate));
     try {
       const updated = await workItemsApi.transition(item.key, status, item.row_version, note);
@@ -48,7 +55,26 @@ export default function KanbanView() {
     } catch (requestError) {
       setItems(previous);
       store.addNotification('Perubahan Dibatalkan', requestError instanceof Error ? requestError.message : 'Status task tidak dapat diubah.', 'warning');
+    } finally {
+      setTransitioningKey(null);
     }
+  };
+
+  const startDrag = (event: React.DragEvent<HTMLElement>, key: string) => {
+    event.dataTransfer.effectAllowed = 'move';
+    // text/plain is supported consistently by Chromium, Firefox, and Safari.
+    event.dataTransfer.setData('text/plain', key);
+    event.dataTransfer.setData('text/work-item', key);
+    setDraggedKey(key);
+  };
+
+  const dropOnColumn = (event: React.DragEvent<HTMLElement>, status: WorkItemStatus) => {
+    event.preventDefault();
+    const key = event.dataTransfer.getData('text/plain') || event.dataTransfer.getData('text/work-item') || draggedKey;
+    setDragOver(null);
+    setDraggedKey(null);
+    const item = itemByKey(items, key);
+    if (item) void transition(item, status);
   };
 
   if (!activeProjectId) return <Empty message="Pilih proyek untuk membuka Kanban." />;
@@ -57,11 +83,12 @@ export default function KanbanView() {
       <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-base font-bold text-white">Kanban Work Item</h1><p className="text-xs text-gray-500">Pekerjaan nyata yang terhubung ke node dan spesifikasi.</p></div><button onClick={() => setCreating(true)} className="flex items-center gap-2 rounded-lg bg-[#C5A267] px-3 py-2 text-xs font-bold text-black"><Plus className="h-4 w-4" />Task baru</button></div>
       <BoardFilters filters={filters} setFilters={setFilters} modules={modules} members={projectMembers} />
     </header>
+    {transitioningKey && <div className="border-b border-[#C5A267]/20 bg-[#C5A267]/10 px-4 py-2 text-xs text-[#E7CB93]">Memindahkan work item...</div>}
     {loading ? <Empty message="Memuat work item..." /> : error ? <Empty message={error} action={load} /> : <div className="h-[calc(100%-132px)] overflow-x-auto p-4 scrollbar-thin"><div className="grid min-w-[1320px] grid-cols-6 gap-3 items-start">{BOARD_STATUSES.map((status) => {
       const cards = visible.filter((item) => item.status === status); const metrics = columnMetrics(visible, status);
-      return <section key={status} onDragOver={(event) => event.preventDefault()} onDragEnter={() => setDragOver(status)} onDragLeave={() => setDragOver(null)} onDrop={(event) => { event.preventDefault(); setDragOver(null); const item = itemByKey(items, event.dataTransfer.getData('text/work-item')); if (item) void transition(item, status); }} className={`min-h-[520px] rounded-lg border border-white/10 border-t-2 bg-[#111113] p-3 ${statusTone[status]} ${dragOver === status ? 'ring-1 ring-[#C5A267]' : ''}`}>
+      return <section key={status} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; }} onDragEnter={() => setDragOver(status)} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragOver(null); }} onDrop={(event) => dropOnColumn(event, status)} className={`min-h-[520px] rounded-lg border border-white/10 border-t-2 bg-[#111113] p-3 transition-colors ${statusTone[status]} ${dragOver === status ? 'ring-1 ring-[#C5A267] bg-[#C5A267]/5' : ''}`}>
         <div className="mb-3 flex items-start justify-between gap-2 border-b border-white/5 pb-3"><div><h2 className="text-xs font-bold text-white">{status}</h2><p className="mt-1 text-[10px] text-gray-500">{metrics.points} poin · {metrics.overdue} terlambat</p></div><span className="rounded bg-white/5 px-2 py-1 text-[10px] font-mono">{metrics.count}</span></div>
-        <div className="space-y-2">{cards.map((item) => <WorkItemCard key={item.id} item={item} nodeLabel={nodes.find((node) => node.id === item.node_id)?.label} assignee={projectMembers.find((member) => member.id === item.assignee_id)?.name} onOpen={() => store.selectWorkItem(item.key)} onTransition={transition} />)}{!cards.length && <button onClick={() => setCreating(true)} className="w-full rounded-lg border border-dashed border-white/10 p-6 text-xs text-gray-600 hover:text-gray-400">Tambah task</button>}</div>
+        <div className="space-y-2">{cards.map((item) => <WorkItemCard key={item.id} item={item} nodeLabel={nodes.find((node) => node.id === item.node_id)?.label} assignee={projectMembers.find((member) => member.id === item.assignee_id)?.name} isDragging={draggedKey === item.key} isTransitioning={transitioningKey === item.key} onDragStart={startDrag} onDragEnd={() => { setDraggedKey(null); setDragOver(null); }} onOpen={() => store.selectWorkItem(item.key)} onTransition={transition} />)}{!cards.length && <button onClick={() => setCreating(true)} className="w-full rounded-lg border border-dashed border-white/10 p-6 text-xs text-gray-600 hover:text-gray-400">Tambah task</button>}</div>
       </section>;
     })}</div></div>}
     {creating && <CreateModal projectId={activeProjectId} modules={modules} nodes={nodes} members={projectMembers} defaultModuleId={filters.moduleId === 'all' ? activeId || '' : filters.moduleId} onClose={() => setCreating(false)} onCreated={(item) => { setItems((current) => [item, ...current]); setCreating(false); store.selectWorkItem(item.key); }} />}
@@ -76,9 +103,9 @@ function BoardFilters({ filters, setFilters, modules, members }: { filters: Kanb
 
 function Select({ value, onChange, label, options }: { value: string; onChange: (value: string) => void; label: string; options: string[][] }) { return <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="max-w-44 rounded-lg border border-white/10 bg-[#151517] px-2 py-2 text-xs text-gray-300">{options.map(([key,text]) => <option key={key} value={key}>{text}</option>)}</select>; }
 
-function WorkItemCard({ item, nodeLabel, assignee, onOpen, onTransition }: { key?: React.Key; item: WorkItem; nodeLabel?: string; assignee?: string; onOpen: () => void; onTransition: (item: WorkItem, status: WorkItemStatus) => void }) {
+function WorkItemCard({ item, nodeLabel, assignee, isDragging, isTransitioning, onDragStart, onDragEnd, onOpen, onTransition }: { key?: React.Key; item: WorkItem; nodeLabel?: string; assignee?: string; isDragging: boolean; isTransitioning: boolean; onDragStart: (event: React.DragEvent<HTMLElement>, key: string) => void; onDragEnd: () => void; onOpen: () => void; onTransition: (item: WorkItem, status: WorkItemStatus) => void }) {
   const overdue = item.due_date && new Date(item.due_date) < new Date() && item.status !== 'Done';
-  return <article draggable onDragStart={(event) => { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/work-item', item.key); }} onClick={onOpen} className="rounded-lg border border-white/10 bg-[#18181B] p-3 shadow-md hover:border-[#C5A267]/40 cursor-pointer"><div className="flex items-start gap-2"><GripVertical className="mt-0.5 h-4 w-4 shrink-0 text-gray-700" /><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><span className="text-[10px] font-mono text-[#C5A267]">{item.key}</span><span className="text-[9px] uppercase text-gray-500">{item.type}</span></div><h3 className="mt-1 text-xs font-semibold leading-5 text-white">{item.title}</h3>{nodeLabel && <p className="mt-1 truncate text-[10px] text-gray-500">{nodeLabel}{item.facet_key ? ` · ${item.facet_key}` : ''}</p>}</div></div><div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] text-gray-500"><span className={`rounded px-1.5 py-0.5 ${item.priority === 'critical' ? 'bg-rose-500/15 text-rose-300' : 'bg-white/5'}`}>{item.priority}</span>{item.points && <span>{item.points} pt</span>}<span className="flex items-center gap-1"><CircleUserRound className="h-3 w-3" />{assignee || 'Unassigned'}</span>{item.due_date && <span className={overdue ? 'text-rose-400' : ''}><CalendarDays className="mr-1 inline h-3 w-3" />{item.due_date.slice(0,10)}</span>}{item.status === 'Blocked' && <AlertTriangle className="h-3.5 w-3.5 text-rose-400" />}</div><select aria-label={`Ubah status ${item.key}`} value={item.status} onClick={(event) => event.stopPropagation()} onChange={(event) => void onTransition(item, event.target.value as WorkItemStatus)} className="mt-3 w-full rounded border border-white/10 bg-[#111113] px-2 py-1.5 text-[10px] text-gray-400">{BOARD_STATUSES.map((status) => <option key={status}>{status}</option>)}<option>Canceled</option></select></article>;
+  return <article draggable={!isTransitioning} onDragStart={(event) => onDragStart(event, item.key)} onDragEnd={onDragEnd} onClick={onOpen} className={`rounded-lg border border-white/10 bg-[#18181B] p-3 shadow-md transition-[opacity,border-color,transform] hover:border-[#C5A267]/40 cursor-grab active:cursor-grabbing ${isDragging ? 'scale-[0.98] opacity-45' : ''} ${isTransitioning ? 'pointer-events-none opacity-60' : ''}`}><div className="flex items-start gap-2"><GripVertical className="mt-0.5 h-4 w-4 shrink-0 text-gray-700" /><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><span className="text-[10px] font-mono text-[#C5A267]">{item.key}</span><span className="text-[9px] uppercase text-gray-500">{item.type}</span></div><h3 className="mt-1 text-xs font-semibold leading-5 text-white">{item.title}</h3>{nodeLabel && <p className="mt-1 truncate text-[10px] text-gray-500">{nodeLabel}{item.facet_key ? ` · ${item.facet_key}` : ''}</p>}</div></div><div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] text-gray-500"><span className={`rounded px-1.5 py-0.5 ${item.priority === 'critical' ? 'bg-rose-500/15 text-rose-300' : 'bg-white/5'}`}>{item.priority}</span>{item.points && <span>{item.points} pt</span>}<span className="flex items-center gap-1"><CircleUserRound className="h-3 w-3" />{assignee || 'Unassigned'}</span>{item.due_date && <span className={overdue ? 'text-rose-400' : ''}><CalendarDays className="mr-1 inline h-3 w-3" />{item.due_date.slice(0,10)}</span>}{item.status === 'Blocked' && <AlertTriangle className="h-3.5 w-3.5 text-rose-400" />}</div><select aria-label={`Ubah status ${item.key}`} value={item.status} onClick={(event) => event.stopPropagation()} onChange={(event) => void onTransition(item, event.target.value as WorkItemStatus)} className="mt-3 w-full rounded border border-white/10 bg-[#111113] px-2 py-1.5 text-[10px] text-gray-400">{BOARD_STATUSES.map((status) => <option key={status}>{status}</option>)}<option>Canceled</option></select></article>;
 }
 
 function CreateModal({ projectId, modules, nodes, members, defaultModuleId, onClose, onCreated }: { projectId: string; modules: Array<{id:string;name:string}>; nodes: BoardNode[]; members: Member[]; defaultModuleId: string; onClose: () => void; onCreated: (item: WorkItem) => void }) {

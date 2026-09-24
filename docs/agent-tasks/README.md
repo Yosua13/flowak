@@ -30,6 +30,47 @@ Folder ini memecah `Rencana_Pengembangan_Flowak_Traceability_Workspace.docx` men
 | 4 | `09-derived-views-documents.md` | Ya | 04, 05, 07 |
 | 4 | `10-events-versions-notifications.md` | Ya | 01, 02, 04 |
 | 5 | `11-cleanup-testing-rollout.md` | Tidak | 01 sampai 10 |
+| 6 | `12-graph-reconciliation.md` | Ya | 01 |
+| 6 | `13-tenant-integration-coverage.md` | Ya | 02 |
+| 6 | `14-frontend-state-boundaries.md` | Ya | 03 |
+| 7 | `15-work-item-delivery-artifacts.md` | Ya | 04, 13 |
+| 7 | `16-specification-security-completeness.md` | Ya | 05, 13 |
+| 8 | `17-node-detail-accessibility.md` | Ya | 06, 14, 15, 16 |
+| 8 | `18-kanban-completion.md` | Ya | 07, 14, 15 |
+| 8 | `19-api-contract-builder.md` | Ya | 08, 15, 16 |
+| 9 | `20-derived-view-contract-tests.md` | Ya | 09, 15, 18, 19 |
+| 9 | `21-durable-collaboration.md` | Ya | 10, 13, 15 |
+| 10 | `22-release-quality-gates.md` | Tidak | 12 sampai 21 |
+
+## Pemetaan Issue Audit
+
+| Issue GitHub | Dokumen | Branch yang disarankan |
+|---|---|---|
+| #48 | `12-graph-reconciliation.md` | `flowak/issue-48` |
+| #49 | `13-tenant-integration-coverage.md` | `flowak/issue-49` |
+| #50 | `14-frontend-state-boundaries.md` | `flowak/issue-50` |
+| #51 | `15-work-item-delivery-artifacts.md` | `flowak/issue-51` |
+| #52 | `16-specification-security-completeness.md` | `flowak/issue-52` |
+| #53 | `17-node-detail-accessibility.md` | `flowak/issue-53` |
+| #54 | `18-kanban-completion.md` | `flowak/issue-54` |
+| #55 | `19-api-contract-builder.md` | `flowak/issue-55` |
+| #56 | `20-derived-view-contract-tests.md` | `flowak/issue-56` |
+| #57 | `21-durable-collaboration.md` | `flowak/issue-57` |
+| #58 | `22-release-quality-gates.md` | `flowak/issue-58` |
+
+## Cara Menjalankan Agent
+
+Jalankan satu agent untuk satu issue dan satu branch. Agent wajib membaca issue GitHub, dokumen tugas yang dipetakan, dan perubahan pada branch target sebelum mengedit.
+
+```text
+Kerjakan GitHub issue #NN pada repository Yosua13/flowak.
+Baca docs/agent-tasks/NN-nama-tugas.md dan seluruh kode yang relevan.
+Implementasikan hanya scope issue, tambahkan test, jalankan verifikasi,
+commit profesional ke branch flowak/issue-NN, push, lalu buat PR menuju develop.
+Jangan merge dan jangan mengubah bagian di luar scope.
+```
+
+Jangan menjalankan issue dengan prasyarat yang belum merged. Setelah tiap PR merged, agent berikutnya harus membuat branch dari `develop` terbaru.
 
 ## Kontrak serah terima agent
 

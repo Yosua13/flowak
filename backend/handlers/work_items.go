@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -88,6 +89,10 @@ func scanWorkItem(row *sql.Row) (models.WorkItem, error) {
 }
 
 const workItemFields = `id, work_key, project_id, module_id, node_id, facet_key, parent_id, type, title, description, priority, points, status, assignee_id, reporter_id, start_date, due_date, blocked_reason, resolution, row_version, created_at, updated_at`
+
+// PostgreSQL prepared statements must receive one stable type for each
+// placeholder. $1 participates in both the status assignment and CASE checks.
+const transitionWorkItemSQL = `UPDATE work_items SET status=$1::varchar,blocked_reason=CASE WHEN $1::varchar='Blocked' THEN $2 ELSE blocked_reason END,resolution=CASE WHEN $1::varchar='Done' THEN $3 ELSE resolution END,row_version=row_version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$4 AND row_version=$5 AND deleted_at IS NULL`
 
 func getWorkItem(key string) (models.WorkItem, error) {
 	return scanWorkItem(db.DB.QueryRow(`SELECT `+workItemFields+` FROM work_items WHERE work_key=$1 AND deleted_at IS NULL`, key))
@@ -420,8 +425,9 @@ func TransitionWorkItemHandler(c *gin.Context) {
 		return
 	}
 	defer tx.Rollback()
-	result, err := tx.Exec(`UPDATE work_items SET status=$1,blocked_reason=CASE WHEN $1='Blocked' THEN $2 ELSE blocked_reason END,resolution=CASE WHEN $1='Done' THEN $3 ELSE resolution END,row_version=row_version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$4 AND row_version=$5 AND deleted_at IS NULL`, req.Status, req.Note, req.Resolution, item.ID, req.RowVersion)
+	result, err := tx.Exec(transitionWorkItemSQL, req.Status, req.Note, req.Resolution, item.ID, req.RowVersion)
 	if err != nil {
+		log.Printf("work item transition update failed for %s: %v", item.Key, err)
 		c.JSON(500, gin.H{"error": "failed to transition work item"})
 		return
 	}
@@ -432,6 +438,7 @@ func TransitionWorkItemHandler(c *gin.Context) {
 	}
 	_, err = tx.Exec(`INSERT INTO work_item_status_history(id,work_item_id,from_status,to_status,changed_by,note) VALUES($1,$2,$3,$4,$5,$6)`, "wih_"+GenerateUUID(), item.ID, item.Status, req.Status, userID, req.Note)
 	if err != nil {
+		log.Printf("work item transition audit insert failed for %s: %v", item.Key, err)
 		c.JSON(500, gin.H{"error": "failed to record transition"})
 		return
 	}
