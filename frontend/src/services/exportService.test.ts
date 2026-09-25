@@ -6,6 +6,12 @@ const module: Module = { id: 'm1', name: 'Checkout', nodes: [{ id: 'n1', type: '
 
 describe('safe exports', () => {
   it('redacts sensitive values recursively', () => expect(redactSensitive({ token: 'private', child: { password: 'secret', safe: 'ok' } })).toEqual({ token: '{{REDACTED}}', child: { password: '{{REDACTED}}', safe: 'ok' } }));
+  it('removes legacy auth and nested JSON secrets from canonical exports', () => {
+    const cleaned = JSON.stringify(redactSensitive({ auth: 'Bearer private', endpoint: '/items?api_key=private', request: '{"token":"private","safe":"ok"}' }));
+    expect(cleaned).not.toContain('private');
+    expect(cleaned).toContain('{{API_TOKEN}}');
+    expect(cleaned).toContain('safe');
+  });
   it('exports typed OpenAPI without response examples and cURL variables', () => {
     const openapi = generateOpenApi(module);
     expect(openapi).not.toContain('private');

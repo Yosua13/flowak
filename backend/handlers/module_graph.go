@@ -52,7 +52,7 @@ func syncModuleGraph(tx *sql.Tx, moduleID string, nodesValue any, edgesValue any
 		nodeIDs[nodeID] = true
 
 		doc := mapField(node, "doc")
-		if err := validateBusinessFacet(doc); err != nil {
+		if err := validateSpecificationNode(node); err != nil {
 			return err
 		}
 		slaValue, slaUnit := parseSLA(stringField(doc, "sla"))
@@ -61,9 +61,6 @@ func syncModuleGraph(tx *sql.Tx, moduleID string, nodesValue any, edgesValue any
 			return err
 		}
 		roles := mapField(node, "roles")
-		if err := validateRoleURLs(roles); err != nil {
-			return err
-		}
 		if err := syncRoleFacet(tx, nodeID, "uiux", mapField(roles, "uiux")); err != nil {
 			return err
 		}
@@ -116,16 +113,22 @@ func validateBusinessFacet(doc map[string]any) error {
 	if triggerType := firstString(doc, "triggerType", "trigger_type"); triggerType != "" && !oneOf(triggerType, "manual", "event", "schedule", "api") {
 		return &graphSyncError{Code: graphInvalidCode, Message: "triggerType is invalid"}
 	}
+	if sla := stringField(doc, "sla"); sla != "" {
+		value, _ := parseSLA(sla)
+		if !exactSLA.MatchString(sla) || value == nil || value.(float64) <= 0 {
+			return specError("doc.sla", "must use a positive number and supported unit")
+		}
+	}
 	return nil
 }
 
 func validateRoleURLs(roles map[string]any) error {
 	for _, roleKey := range []string{"uiux", "frontend", "backend"} {
 		facet := mapField(roles, roleKey)
-		for _, key := range []string{"link", "figmaFrameUrl", "wireframeUrl", "handoffLink"} {
+		for _, key := range []string{"link", "figmaFrameUrl", "wireframeUrl", "handoffLink", "prototypeUrl"} {
 			value := stringField(facet, key)
-			if value != "" && !(strings.HasPrefix(value, "https://") || strings.HasPrefix(value, "http://")) {
-				return &graphSyncError{Code: graphInvalidCode, Message: key + " must be an absolute URL"}
+			if value != "" && !validSpecURL(value) {
+				return &graphSyncError{Code: graphInvalidCode, Message: key + " must be an absolute HTTP(S) URL without credentials"}
 			}
 		}
 	}
@@ -228,7 +231,7 @@ func activeNodeIDs(tx *sql.Tx, moduleID string) (map[string]bool, error) {
 }
 
 func upsertNode(tx *sql.Tx, moduleID, nodeID string, idx int, node, doc map[string]any, slaValue, slaUnit any, expectedVersion int, hasVersion bool) error {
-	metadata := jsonText(map[string]any{"source": "frontend_graph", "raw": graphPayload(node)})
+	metadata := jsonText(map[string]any{"source": "frontend_graph", "legacy_notes": mapField(node, "legacyNotes")})
 	var currentVersion int
 	err := tx.QueryRow("SELECT row_version FROM workflow_nodes WHERE id = $1 AND module_id = $2 AND deleted_at IS NULL", nodeID, moduleID).Scan(&currentVersion)
 	if err == sql.ErrNoRows {
@@ -261,7 +264,7 @@ func upsertNode(tx *sql.Tx, moduleID, nodeID string, idx int, node, doc map[stri
 			nullableString(stringField(doc, "input")),
 			nullableString(stringField(doc, "process")),
 			nullableString(stringField(doc, "output")),
-			nullableString(stringField(doc, "rules")),
+			nullableString(rulesText(doc)),
 			nullableString(firstString(doc, "exceptionPath", "exception_path")),
 			nullableString(stringField(doc, "system")),
 			slaValue,
@@ -477,7 +480,7 @@ func syncRoleFacet(tx *sql.Tx, nodeID, roleKey string, facet map[string]any) err
 		normalizeStatus(firstString(facet, "readiness", "status")),
 		nullableDate(firstString(facet, "dueDate", "due_date")),
 		nullableString(firstString(facet, "notes", "note")),
-		jsonText(map[string]any{"raw": facet}),
+		jsonText(map[string]any{"source": "frontend_graph"}),
 	)
 	if err != nil {
 		return err
@@ -511,7 +514,7 @@ func syncRoleFacet(tx *sql.Tx, nodeID, roleKey string, facet map[string]any) err
 			nullableString(firstString(facet, "accessibilityNotes", "accessibility_notes")),
 			nullableString(firstString(facet, "userGoal", "user_goal")), nullableString(stringField(facet, "surface")), nullableString(firstString(facet, "figmaFrameUrl", "figma_frame_url", "link")), nullableString(firstString(facet, "designVersion", "design_version")),
 			nullableString(firstString(facet, "screenStates", "screen_states", "stateNotes")), nullableString(stringField(facet, "interactions")), nullableString(firstString(facet, "contentMessages", "content_messages")), nullableString(firstString(facet, "responsiveIntent", "responsive_intent")),
-			jsonText(map[string]any{"raw": facet}),
+			jsonText(map[string]any{"source": "frontend_graph"}),
 		)
 	case "frontend":
 		_, err = tx.Exec(`
@@ -540,7 +543,7 @@ func syncRoleFacet(tx *sql.Tx, nodeID, roleKey string, facet map[string]any) err
 			nullableString(firstString(facet, "handoffLink", "handoffUrl", "handoff_url", "link")),
 			nullableString(firstString(facet, "experienceName", "experience_name", "page")), nullableString(firstString(facet, "entryExitBehavior", "entry_exit_behavior")), nullableString(firstString(facet, "inputRequirements", "input_requirements")),
 			nullableString(firstString(facet, "apiReferences", "api_references")), nullableString(firstString(facet, "analyticsIntent", "analytics_intent")), nullableString(firstString(facet, "featureAvailability", "feature_availability")),
-			jsonText(map[string]any{"raw": facet}),
+			jsonText(map[string]any{"source": "frontend_graph"}),
 		)
 	case "backend":
 		requestJSON := jsonbFromText(stringField(facet, "request"))
@@ -578,7 +581,7 @@ func syncRoleFacet(tx *sql.Tx, nodeID, roleKey string, facet map[string]any) err
 			nullableString(firstString(facet, "serviceCapability", "service_capability")), nullableString(firstString(facet, "apiReferences", "api_references")), nullableString(firstString(facet, "businessValidation", "business_validation")), nullableString(firstString(facet, "dependencyReferences", "dependency_references")),
 			nullableString(firstString(facet, "idempotencyNotes", "idempotency_notes")), nullableString(firstString(facet, "cachingNotes", "caching_notes")), nullableString(firstString(facet, "securityNotes", "security_notes")), nullableString(firstString(facet, "observabilityIntent", "observability_intent")),
 			func() any { value, _ := parseSLA(stringField(facet, "sla")); return value }(), func() any { _, unit := parseSLA(stringField(facet, "sla")); return unit }(),
-			jsonText(map[string]any{"raw": facet}),
+			jsonText(map[string]any{"source": "frontend_graph"}),
 		)
 	}
 
@@ -589,7 +592,7 @@ func hydrateModuleGraph(module *models.Module) error {
 	rows, err := db.DB.Query(`
 		SELECT id, type, label, x, y, actor, trigger, input_desc, process_desc,
 			output_desc, business_rules, exception_path, system_context, sla_value,
-			sla_unit, priority, risk_level, acceptance_criteria, outcome, trigger_type, preconditions, reference_links, row_version
+			sla_unit, priority, risk_level, acceptance_criteria, outcome, trigger_type, preconditions, reference_links, metadata, row_version
 		FROM workflow_nodes
 		WHERE module_id = $1 AND deleted_at IS NULL
 		ORDER BY sort_order ASC, created_at ASC
@@ -608,7 +611,8 @@ func hydrateModuleGraph(module *models.Module) error {
 		var slaValue sql.NullFloat64
 		var slaUnit, priority, riskLevel, acceptanceCriteria, outcome, triggerType, preconditions, referenceLinks sql.NullString
 		var rowVersion int
-		if err := rows.Scan(&id, &nodeType, &label, &x, &y, &actor, &trigger, &input, &process, &output, &rules, &exceptionPath, &systemContext, &slaValue, &slaUnit, &priority, &riskLevel, &acceptanceCriteria, &outcome, &triggerType, &preconditions, &referenceLinks, &rowVersion); err != nil {
+		var metadata []byte
+		if err := rows.Scan(&id, &nodeType, &label, &x, &y, &actor, &trigger, &input, &process, &output, &rules, &exceptionPath, &systemContext, &slaValue, &slaUnit, &priority, &riskLevel, &acceptanceCriteria, &outcome, &triggerType, &preconditions, &referenceLinks, &metadata, &rowVersion); err != nil {
 			return err
 		}
 
@@ -641,6 +645,12 @@ func hydrateModuleGraph(module *models.Module) error {
 			"doc":        doc,
 			"roles":      map[string]any{},
 		}
+		var meta map[string]any
+		if json.Unmarshal(metadata, &meta) == nil {
+			if notes := mapField(meta, "legacy_notes"); len(notes) > 0 {
+				node["legacyNotes"] = notes
+			}
+		}
 		nodes = append(nodes, node)
 		nodeIndex[id] = node
 	}
@@ -663,6 +673,9 @@ func hydrateModuleGraph(module *models.Module) error {
 	}
 	if err := hydrateBackendContracts(module.ID, nodeIndex); err != nil {
 		return err
+	}
+	for _, node := range nodes {
+		node["completeness"] = specificationCompleteness(node)
 	}
 
 	edgeRows, err := db.DB.Query(`
@@ -879,12 +892,20 @@ func hydrateBackendContracts(moduleID string, nodeIndex map[string]map[string]an
 		role := roleMap(nodeIndex, nodeID, "backend")
 		role["method"] = method
 		role["endpoint"] = endpoint
-		role["auth"] = auth
-		role["request"] = jsonbDisplay(requestBody)
-		role["response"] = jsonbDisplay(responseBody)
+		if auth != "" && !validReference(auth) && !oneOf(auth, "none", "inherit") {
+			role["auth"] = "{{API_TOKEN}}"
+			node := nodeIndex[nodeID]
+			notes := mapField(node, "legacyNotes")
+			notes["backend.auth"] = "Legacy authorization removed; choose a variable reference."
+			node["legacyNotes"] = notes
+		} else {
+			role["auth"] = auth
+		}
+		role["request"] = scrubLegacyDisplay(jsonbDisplay(requestBody))
+		role["response"] = scrubLegacyDisplay(jsonbDisplay(responseBody))
 		role["statusCode"] = statusCode
 		if errorCodes != "" {
-			role["errorCodes"] = jsonbDisplay(errorCodes)
+			role["errorCodes"] = scrubLegacyDisplay(jsonbDisplay(errorCodes))
 		}
 		role["serviceCapability"], role["apiReferences"], role["businessValidation"], role["dependencyReferences"] = capability, apiRefs, validation, dependencies
 		role["idempotencyNotes"], role["cachingNotes"], role["securityNotes"], role["observabilityIntent"] = idempotency, caching, security, observability

@@ -25,7 +25,7 @@ const saveLabels = {
 } as const;
 
 export default function NodeDetailSurface({ node, module, mode, onClose, onModeChange }: NodeDetailSurfaceProps) {
-  const { activeProjectId, token, saveStatus, updateNode, retryActiveModuleSave, reloadActiveProject } = useStore();
+  const { activeProjectId, token, saveStatus, saveError, updateNode, retryActiveModuleSave, reloadActiveProject } = useStore();
   const [tab, setTab] = useState<DetailTab>('summary');
   const [items, setItems] = useState<WorkItem[]>([]);
   const [comments, setComments] = useState<NodeComment[]>([]);
@@ -188,6 +188,8 @@ export default function NodeDetailSurface({ node, module, mode, onClose, onModeC
             </div>
           </div>
           {saveStatus === 'conflict' && <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-950/25 p-2 text-xs text-rose-100"><CircleAlert className="h-4 w-4" /> Versi graph berubah di server. <button onClick={() => void reloadActiveProject()} className="underline">Muat ulang</button><button onClick={() => void retryActiveModuleSave()} className="underline">Coba lagi</button><span className="text-rose-200/70">Muat ulang untuk membandingkan versi server sebelum melanjutkan.</span></div>}
+          {saveStatus === 'failed' && saveError && <p role="alert" className="mt-3 rounded-lg border border-rose-500/30 bg-rose-950/25 p-2 text-xs text-rose-100">{saveError}</p>}
+          {node.legacyNotes && Object.keys(node.legacyNotes).length > 0 && <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-950/20 p-2 text-xs text-amber-100"><strong>Nilai legacy perlu ditinjau:</strong> {Object.entries(node.legacyNotes).map(([field, note]) => <span key={field} className="ml-2">{field}: {note}</span>)}</div>}
         </header>
         <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-white/10 bg-[#0A0A0B] p-2" aria-label="Bagian detail node">
           {detailTabs().map((item) => <button key={item.id} onClick={() => setTab(item.id)} className={`whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold ${tab === item.id ? 'bg-[#C5A267]/15 text-[#E2C392]' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}>{item.label}</button>)}

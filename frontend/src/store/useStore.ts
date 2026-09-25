@@ -61,6 +61,7 @@ interface AppStore {
   projectMembers: TeamMember[];
   dashboardStats: { myTasksCount: number; completionRate: number } | null;
   saveStatus: SaveStatus;
+  saveError: string | null;
   setSaveStatus: (status: SaveStatus) => void;
   retryActiveModuleSave: () => Promise<void>;
   reloadActiveProject: () => Promise<void>;
@@ -141,7 +142,7 @@ const persistActiveModule = async (set: any, get: any, moduleId: ID) => {
   const activeMod = latest.modules.find((module: Module) => module.id === moduleId);
   if (!activeMod || !latest.token) return;
 
-  set({ saveStatus: 'saving' });
+  set({ saveStatus: 'saving', saveError: null });
   try {
     const result = await saveGraph(activeMod, graphRequest?.signal);
     if (Array.isArray(result.nodes) && Array.isArray(result.edges)) {
@@ -157,7 +158,7 @@ const persistActiveModule = async (set: any, get: any, moduleId: ID) => {
   } catch (err: any) {
     const rollback = confirmedGraphs.get(moduleId);
     if (rollback) set((state: any) => ({ modules: state.modules.map((module: Module) => module.id === moduleId ? rollback : module) }));
-    set({ saveStatus: err?.code === 'conflict' ? 'conflict' : typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'failed' });
+    set({ saveStatus: err?.code === 'conflict' ? 'conflict' : typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'failed', saveError: err instanceof Error ? err.message : 'Validasi spesifikasi gagal.' });
     console.error('Failed to sync canvas updates to server:', err);
   }
 };
@@ -165,7 +166,7 @@ const persistActiveModule = async (set: any, get: any, moduleId: ID) => {
 const debouncedSave = (set: any, get: any) => {
   const { activeId, token } = get();
   if (!activeId || !token) return;
-  set({ saveStatus: 'saving' });
+  set({ saveStatus: 'saving', saveError: null });
 	if (saveTimeout) clearTimeout(saveTimeout);
 	saveTimeout = setTimeout(async () => {
 		await persistActiveModule(set, get, activeId);
@@ -197,6 +198,7 @@ export const useStore = create<AppStore>((set, get) => ({
   projectMembers: [],
   dashboardStats: null,
   saveStatus: 'idle',
+  saveError: null,
   setSaveStatus: (saveStatus) => set({ saveStatus }),
   retryActiveModuleSave: async () => {
     const { activeId } = get();
