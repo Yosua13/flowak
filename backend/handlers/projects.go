@@ -371,6 +371,22 @@ func CreateProjectModuleHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
+	if req.Nodes != nil {
+		nodes, err := prepareSpecificationNodes(req.Nodes)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "error_code": graphInvalidCode})
+			return
+		}
+		req.Nodes = nodes
+	}
+	if req.Edges != nil {
+		edges, err := prepareSpecificationEdges(req.Edges)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "error_code": graphInvalidCode})
+			return
+		}
+		req.Edges = edges
+	}
 
 	name := strings.TrimSpace(req.Name)
 	description := strings.TrimSpace(req.Description)
@@ -476,6 +492,22 @@ func UpdateModuleHandler(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
+	}
+	if req.Nodes != nil {
+		nodes, err := prepareSpecificationNodes(req.Nodes)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "error_code": graphInvalidCode})
+			return
+		}
+		req.Nodes = nodes
+	}
+	if req.Edges != nil {
+		edges, err := prepareSpecificationEdges(req.Edges)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "error_code": graphInvalidCode})
+			return
+		}
+		req.Edges = edges
 	}
 
 	tx, err := db.DB.Begin()
