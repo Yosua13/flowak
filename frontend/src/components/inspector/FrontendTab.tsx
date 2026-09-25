@@ -6,7 +6,8 @@
 import React from 'react';
 import { Node, Status, FrontendFacet } from '../../domain/types';
 import { useStore } from '../../store/useStore';
-import { ExternalLink, FileText, MousePointer2, Route } from 'lucide-react';
+import { ExternalLink, FileText, Route } from 'lucide-react';
+import TextRows from './TextRows';
 
 interface FrontendTabProps {
   node: Node;
@@ -129,47 +130,11 @@ export default function FrontendTab({ node }: FrontendTabProps) {
           </div>
         </div>
 
-        <div className="space-y-1">
-          <label className="block text-[9px] font-bold text-gray-400 font-mono uppercase tracking-wider">
-            Perilaku Interaksi
-          </label>
-          <textarea
-            value={fe.interaction || ''}
-            onChange={(e) => handleFieldChange('interaction', e.target.value)}
-            placeholder="Contoh: submit menampilkan loading, sukses membuka ringkasan, gagal menampilkan pesan validasi."
-            rows={3}
-            className="w-full text-xs border border-white/5 rounded-xl px-3 py-2 bg-[#1A1A1D] text-white outline-none focus:ring-1 focus:ring-[#C5A267] transition font-medium h-20 resize-none"
-          />
-        </div>
+        <TextRows label="Perilaku interaksi" value={fe.interaction} onChange={(value) => handleFieldChange('interaction', value)} placeholder="Aksi dan respons pengguna" />
 
-        <div className="space-y-1">
-          <label className="block text-[9px] font-bold text-gray-400 font-mono uppercase tracking-wider">
-            Validasi & Pesan Pengguna
-          </label>
-          <textarea
-            value={fe.validation || ''}
-            onChange={(e) => handleFieldChange('validation', e.target.value)}
-            placeholder="Contoh: tanggal mulai wajib lebih besar dari hari ini; alasan wajib diisi."
-            rows={3}
-            className="w-full text-xs border border-white/5 rounded-xl px-3 py-2 bg-[#1A1A1D] text-white outline-none focus:ring-1 focus:ring-[#C5A267] transition font-medium h-20 resize-none"
-          />
-        </div>
+        <TextRows label="Validasi & pesan pengguna" value={fe.validation} onChange={(value) => handleFieldChange('validation', value)} placeholder="Kondisi dan pesan" />
 
-        <div className="space-y-1">
-          <label className="block text-[9px] font-bold text-gray-400 font-mono uppercase tracking-wider">
-            State Handling
-          </label>
-          <div className="relative">
-            <MousePointer2 className="w-3.5 h-3.5 text-gray-500 absolute left-3 top-3" />
-            <textarea
-              value={fe.state || ''}
-              onChange={(e) => handleFieldChange('state', e.target.value)}
-              placeholder="Loading, empty state, retry, success, error, dan edge case utama."
-              rows={3}
-              className="w-full text-xs border border-white/5 rounded-xl pl-9 pr-3 py-2 bg-[#1A1A1D] text-white outline-none focus:ring-1 focus:ring-[#C5A267] transition font-medium h-20 resize-none"
-            />
-          </div>
-        </div>
+        <TextRows label="State matrix" value={fe.state} onChange={(value) => handleFieldChange('state', value)} placeholder="State dan perilaku" />
 
         <div className="space-y-1">
           <label className="block text-[9px] font-bold text-gray-400 font-mono uppercase tracking-wider">
@@ -199,7 +164,7 @@ export default function FrontendTab({ node }: FrontendTabProps) {
 
         {([
           ['experienceName', 'Nama pengalaman'], ['entryExitBehavior', 'Perilaku masuk / keluar'],
-          ['inputRequirements', 'Kebutuhan input'], ['apiReferences', 'Referensi API'],
+          ['inputRequirements', 'Kebutuhan input'],
           ['analyticsIntent', 'Intent analytics'], ['featureAvailability', 'Ketersediaan fitur'],
           ['notes', 'Checklist handoff & evidence'],
         ] as const).map(([key, label]) => (
@@ -209,6 +174,7 @@ export default function FrontendTab({ node }: FrontendTabProps) {
               className="w-full text-xs border border-white/5 rounded-xl px-3 py-2 bg-[#1A1A1D] text-white outline-none focus:ring-1 focus:ring-[#C5A267] h-16 resize-none" />
           </div>
         ))}
+		<TextRows label="Referensi API" value={fe.apiReferences} onChange={(value) => handleFieldChange('apiReferences', value)} placeholder="Kontrak atau tautan API" />
       </div>
     </div>
   );

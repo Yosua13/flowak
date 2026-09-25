@@ -10,6 +10,7 @@ export function facetReadiness(node: Node, facet: 'uiux' | 'frontend' | 'backend
 }
 
 export function nodeCompleteness(node: Node): number {
+  if (typeof node.completeness === 'number') return node.completeness;
   const checks = [
     node.label,
     node.doc.outcome || node.doc.output,

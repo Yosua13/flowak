@@ -8,6 +8,7 @@ import { Node, Status, HttpMethod, BackendFacet } from '../../domain/types';
 import { useStore } from '../../store/useStore';
 import { generateCurl } from '../../services/curl';
 import { Copy, Play, Check, AlertCircle, RefreshCw } from 'lucide-react';
+import TextRows from './TextRows';
 
 interface BackendTabProps {
   node: Node;
@@ -20,7 +21,7 @@ export default function BackendTab({ node }: BackendTabProps) {
     status: 'planned',
     method: 'GET',
     endpoint: '',
-    auth: '',
+    auth: '{{API_TOKEN}}',
     request: '',
     response: '',
     statusCode: '200',
@@ -155,19 +156,18 @@ export default function BackendTab({ node }: BackendTabProps) {
           </div>
         </div>
 
-        {/* Auth token & Expected status code */}
+        {/* Variable reference only; raw authorization is never edited here. */}
         <div className="grid grid-cols-2 gap-2">
           <div className="space-y-1">
             <label className="block text-[9px] font-bold text-gray-400 font-mono uppercase tracking-wider">
-              Otorisasi token
+              Referensi variabel otorisasi
             </label>
-            <input
-              type="text"
-              value={be.auth || ''}
+            <select
+              value={['none', 'inherit', '{{API_TOKEN}}', '{{BEARER_TOKEN}}'].includes(be.auth || '') ? be.auth : '{{API_TOKEN}}'}
               onChange={(e) => handleFieldChange('auth', e.target.value)}
-              placeholder="Bearer Token..."
               className="w-full text-xs font-mono border border-white/5 rounded-xl px-3 py-2 bg-[#1A1A1D] text-white outline-none focus:ring-1 focus:ring-[#C5A267] transition"
-            />
+            ><option value="{{API_TOKEN}}">{'{{API_TOKEN}}'}</option><option value="{{BEARER_TOKEN}}">{'{{BEARER_TOKEN}}'}</option><option value="inherit">Inherit environment</option><option value="none">Tanpa auth</option></select>
+            {be.auth && !['none', 'inherit', '{{API_TOKEN}}', '{{BEARER_TOKEN}}'].includes(be.auth) && <p className="text-[10px] text-amber-300">Nilai legacy disembunyikan. Pilih referensi variabel untuk menggantinya.</p>}
           </div>
           <div className="space-y-1">
             <label className="block text-[9px] font-bold text-gray-400 font-mono uppercase tracking-wider">
@@ -293,8 +293,7 @@ export default function BackendTab({ node }: BackendTabProps) {
         </div>
 
         {([
-          ['serviceCapability', 'Kapabilitas layanan'], ['apiReferences', 'Referensi kontrak API'],
-          ['businessValidation', 'Validasi bisnis'], ['dependencyReferences', 'Referensi dependensi'],
+          ['serviceCapability', 'Kapabilitas layanan'], ['dependencyReferences', 'Referensi dependensi'],
           ['idempotencyNotes', 'Idempotensi'], ['cachingNotes', 'Caching'], ['securityNotes', 'Keamanan'],
           ['observabilityIntent', 'Observability'], ['sla', 'SLA'], ['notes', 'Checklist acceptance & evidence'],
         ] as const).map(([key, label]) => (
@@ -304,6 +303,8 @@ export default function BackendTab({ node }: BackendTabProps) {
               className="w-full text-xs border border-white/5 rounded-xl px-3 py-2 bg-[#1A1A1D] text-white outline-none focus:ring-1 focus:ring-[#C5A267] h-16 resize-none" />
           </div>
         ))}
+		<TextRows label="Referensi kontrak API" value={be.apiReferences} onChange={(value) => handleFieldChange('apiReferences', value)} placeholder="Kontrak atau tautan API" />
+		<TextRows label="Validasi bisnis" value={be.businessValidation} onChange={(value) => handleFieldChange('businessValidation', value)} placeholder="Aturan validasi" />
 
       </div>
     </div>

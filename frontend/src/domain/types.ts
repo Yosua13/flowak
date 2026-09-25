@@ -117,6 +117,8 @@ export interface Node {
     frontend?: FrontendFacet;
     backend?: BackendFacet;
   };
+  completeness?: number;
+  legacyNotes?: Record<string, string>;
   rowVersion?: number;
 }
 
