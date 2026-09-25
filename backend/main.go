@@ -110,6 +110,7 @@ func main() {
 		api.GET("/work-items/:key/comments", handlers.ListWorkItemCommentsHandler)
 		api.GET("/nodes/:id/comments", handlers.ListNodeCommentsHandler)
 		api.POST("/nodes/:id/comments", handlers.CreateNodeCommentHandler)
+		api.GET("/nodes/:id/activity", handlers.ListNodeActivityHandler)
 		api.PATCH("/comments/:id", handlers.UpdateCommentHandler)
 
 		// Server-side only API contract execution; browser never calls targets directly.

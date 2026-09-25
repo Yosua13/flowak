@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowUpRight, CheckCircle2, ChevronDown, CircleAlert, ClipboardList, ExternalLink, Loader2, Maximize2, MessageSquare, Minimize2, Plus, RefreshCw, Send, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, CheckCircle2, ChevronDown, CircleAlert, ClipboardList, Loader2, Maximize2, Minimize2, Plus, Send, X } from 'lucide-react';
 import type { Module, Node, NodeComment, NodeType, WorkItem } from '../../domain/types';
 import { NODE_TYPES } from '../../config/nodeTypes';
 import { STATUS_CONFIG } from '../../config/status';
@@ -9,6 +9,9 @@ import BisnisTab from './BisnisTab';
 import FrontendTab from './FrontendTab';
 import UiuxTab from './UiuxTab';
 import { DetailTab, detailTabs, facetReadiness, isOpenWorkItem, isOverdue, nextPaths, nodeCompleteness, nodeRisk, nodeWorkItems } from './nodeDetail';
+import { nextFocusIndex } from './nodeDetailRoute';
+import { normalizeApiError } from '../../services/apiClient';
+import { nodeDetailsApi, type NodeActivity } from '../../services/nodeDetails';
 
 type SurfaceMode = 'drawer' | 'modal' | 'page';
 
@@ -18,18 +21,22 @@ interface NodeDetailSurfaceProps {
   mode: SurfaceMode;
   onClose: () => void;
   onModeChange: (mode: SurfaceMode) => void;
+  onOpenFullPage: () => void;
 }
 
 const saveLabels = {
   idle: 'Belum ada perubahan', saving: 'Menyimpan', saved: 'Tersimpan', offline: 'Offline', failed: 'Gagal', conflict: 'Konflik',
 } as const;
 
-export default function NodeDetailSurface({ node, module, mode, onClose, onModeChange }: NodeDetailSurfaceProps) {
+type DetailLoadState = 'loading' | 'ready' | 'unauthorized' | 'deleted' | 'error';
+
+export default function NodeDetailSurface({ node, module, mode, onClose, onModeChange, onOpenFullPage }: NodeDetailSurfaceProps) {
   const { activeProjectId, token, saveStatus, saveError, updateNode, retryActiveModuleSave, reloadActiveProject } = useStore();
   const [tab, setTab] = useState<DetailTab>('summary');
   const [items, setItems] = useState<WorkItem[]>([]);
   const [comments, setComments] = useState<NodeComment[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [activity, setActivity] = useState<NodeActivity[]>([]);
+  const [loadState, setLoadState] = useState<DetailLoadState>('loading');
   const [error, setError] = useState('');
   const [newTask, setNewTask] = useState('');
   const [newComment, setNewComment] = useState('');
@@ -37,8 +44,8 @@ export default function NodeDetailSurface({ node, module, mode, onClose, onModeC
   const [showMenu, setShowMenu] = useState(false);
   const originRef = useRef<HTMLElement | null>(null);
   const surfaceRef = useRef<HTMLElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
 
-  const headers = useMemo(() => token ? { Authorization: `Bearer ${token}` } : {}, [token]);
   const nodeItems = useMemo(() => nodeWorkItems(items, node.id), [items, node.id]);
   const openItems = useMemo(() => nodeItems.filter(isOpenWorkItem), [nodeItems]);
   const overdueItems = useMemo(() => openItems.filter((item) => isOverdue(item)), [openItems]);
@@ -46,23 +53,21 @@ export default function NodeDetailSurface({ node, module, mode, onClose, onModeC
 
   const refresh = async () => {
     if (!activeProjectId || !token) {
-      setLoading(false);
+      setLoadState('unauthorized');
       return;
     }
-    setLoading(true);
+    setLoadState('loading');
     setError('');
     try {
-      const [workResponse, commentResponse] = await Promise.all([
-        fetch(`/api/projects/${activeProjectId}/work-items?node_id=${encodeURIComponent(node.id)}`, { headers }),
-        fetch(`/api/nodes/${node.id}/comments`, { headers }),
-      ]);
-      if (!workResponse.ok || !commentResponse.ok) throw new Error('Data detail tidak dapat dimuat.');
-      setItems(await workResponse.json());
-      setComments(await commentResponse.json());
+      const data = await nodeDetailsApi.load(activeProjectId, node.id);
+      setItems(data.items);
+      setComments(data.comments);
+      setActivity(data.activity);
+      setLoadState('ready');
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Data detail tidak dapat dimuat.');
-    } finally {
-      setLoading(false);
+      const apiError = normalizeApiError(requestError);
+      setError(apiError.message);
+      setLoadState(apiError.code === 'unauthorized' || apiError.code === 'forbidden' ? 'unauthorized' : apiError.code === 'not_found' ? 'deleted' : 'error');
     }
   };
 
@@ -72,7 +77,11 @@ export default function NodeDetailSurface({ node, module, mode, onClose, onModeC
     // The node identity is the resource boundary for all detail data.
   }, [node.id, activeProjectId, token]);
 
-  useEffect(() => () => originRef.current?.focus(), []);
+  useEffect(() => {
+    if (mode === 'page') return;
+    const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [mode, node.id]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -81,24 +90,28 @@ export default function NodeDetailSurface({ node, module, mode, onClose, onModeC
         close();
         return;
       }
-      if (event.key !== 'Tab' || mode === 'drawer' || !surfaceRef.current) return;
+      if (event.key !== 'Tab' || mode === 'page' || !surfaceRef.current) return;
       const focusable = Array.from(surfaceRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href]')) as HTMLElement[];
       if (!focusable.length) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
-        last.focus();
+        focusable[nextFocusIndex(0, focusable.length, true)]?.focus();
       } else if (!event.shiftKey && document.activeElement === last) {
         event.preventDefault();
-        first.focus();
+        focusable[nextFocusIndex(focusable.length - 1, focusable.length, false)]?.focus();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [mode]);
 
-  const close = () => onClose();
+  const close = () => {
+    const origin = originRef.current;
+    onClose();
+    window.requestAnimationFrame(() => origin?.isConnected && origin.focus());
+  };
   const changeLabel = (event: React.ChangeEvent<HTMLInputElement>) => updateNode(node.id, { label: event.target.value });
   const changeType = (event: React.ChangeEvent<HTMLSelectElement>) => updateNode(node.id, { type: event.target.value as NodeType });
 
@@ -107,11 +120,7 @@ export default function NodeDetailSurface({ node, module, mode, onClose, onModeC
     if (!activeProjectId || !newTask.trim()) return;
     setSubmitting(true);
     try {
-      const response = await fetch(`/api/projects/${activeProjectId}/work-items`, {
-        method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ module_id: module.id, node_id: node.id, type: 'Task', title: newTask.trim(), priority: 'medium' }),
-      });
-      if (!response.ok) throw new Error('Task tidak dapat dibuat.');
+      await nodeDetailsApi.createWorkItem(activeProjectId, { module_id: module.id, node_id: node.id, type: 'Task', title: newTask.trim(), priority: 'medium' });
       setNewTask('');
       await refresh();
     } catch (requestError) {
@@ -124,10 +133,7 @@ export default function NodeDetailSurface({ node, module, mode, onClose, onModeC
     if (!newComment.trim()) return;
     setSubmitting(true);
     try {
-      const response = await fetch(`/api/nodes/${node.id}/comments`, {
-        method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ body: newComment.trim() }),
-      });
-      if (!response.ok) throw new Error('Komentar tidak dapat dikirim.');
+      await nodeDetailsApi.createComment(node.id, newComment.trim());
       setNewComment('');
       await refresh();
     } catch (requestError) {
@@ -142,8 +148,10 @@ export default function NodeDetailSurface({ node, module, mode, onClose, onModeC
       : 'fixed inset-0 z-[100] h-screen w-screen border-0';
 
   const content = () => {
-    if (loading) return <LoadingState />;
-    if (error) return <ErrorState message={error} onRetry={refresh} />;
+    if (loadState === 'loading') return <LoadingState />;
+    if (loadState === 'unauthorized') return <UnavailableState title="Akses detail ditolak" message="Anda tidak memiliki akses untuk melihat detail node ini." />;
+    if (loadState === 'deleted') return <UnavailableState title="Node telah dihapus" message="Node ini tidak lagi tersedia. Kembali ke kanvas untuk memilih node lain." />;
+    if (loadState === 'error') return <ErrorState message={error} onRetry={refresh} />;
     if (tab === 'summary') return <Summary node={node} module={module} readiness={readiness} openItems={openItems} overdueItems={overdueItems} onTasks={() => setTab('tasks')} />;
     if (tab === 'business') return <BisnisTab node={node} />;
     if (tab === 'uiux') return <UiuxTab node={node} />;
@@ -151,11 +159,11 @@ export default function NodeDetailSurface({ node, module, mode, onClose, onModeC
     if (tab === 'backend') return <BackendTab node={node} />;
     if (tab === 'tasks') return <TaskSection items={nodeItems} value={newTask} submitting={submitting} onChange={setNewTask} onSubmit={createTask} />;
     if (tab === 'discussion') return <DiscussionSection comments={comments} value={newComment} submitting={submitting} onChange={setNewComment} onSubmit={createComment} />;
-    return <ActivitySection />;
+    return <ActivitySection activity={activity} />;
   };
 
   return (
-    <div className={mode === 'modal' ? 'fixed inset-0 z-[100] flex items-center justify-center bg-black/65 p-4' : mode === 'page' ? '' : 'h-full'} role={mode === 'modal' ? 'dialog' : undefined} aria-modal={mode === 'modal' || mode === 'page' ? true : undefined} aria-label={`Detail ${node.label}`}>
+    <div className={mode === 'modal' ? 'fixed inset-0 z-[100] flex items-center justify-center bg-black/65 p-4' : mode === 'page' ? '' : 'h-full'} role={mode === 'page' ? 'main' : 'dialog'} aria-modal={mode === 'page' ? undefined : true} aria-label={`Detail ${node.label}`}>
       <section ref={surfaceRef} className={`${panelClass} flex flex-col overflow-hidden bg-[#111113] border-white/10 text-left`}>
         <header className="sticky top-0 z-20 border-b border-white/10 bg-[#111113]/95 p-4 backdrop-blur">
           <div className="flex gap-3">
@@ -180,11 +188,11 @@ export default function NodeDetailSurface({ node, module, mode, onClose, onModeC
                 <button onClick={() => setShowMenu((value) => !value)} className="rounded-lg p-2 text-gray-400 hover:bg-white/5 hover:text-white" aria-label="Menu detail"><ChevronDown className="h-4 w-4" /></button>
                 {showMenu && <div className="absolute right-0 top-9 z-30 w-48 rounded-xl border border-white/10 bg-[#1A1A1D] p-1 text-xs shadow-xl">
                   <button onClick={() => { onModeChange('modal'); setShowMenu(false); }} className="w-full rounded-lg px-3 py-2 text-left hover:bg-white/5">Pratinjau modal</button>
-                  <button onClick={() => { onModeChange('page'); setShowMenu(false); }} className="w-full rounded-lg px-3 py-2 text-left hover:bg-white/5">Buka halaman penuh</button>
+                  <button onClick={() => { onOpenFullPage(); setShowMenu(false); }} className="w-full rounded-lg px-3 py-2 text-left hover:bg-white/5">Buka halaman penuh</button>
                 </div>}
               </div>
-              <button onClick={() => onModeChange(mode === 'page' ? 'drawer' : 'page')} className="rounded-lg p-2 text-gray-400 hover:bg-white/5 hover:text-white" title="Buka halaman penuh">{mode === 'page' ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}</button>
-              <button onClick={close} className="rounded-lg p-2 text-gray-400 hover:bg-white/5 hover:text-white" aria-label="Tutup detail"><X className="h-5 w-5" /></button>
+              {mode === 'page' ? <button onClick={close} className="rounded-lg p-2 text-gray-400 hover:bg-white/5 hover:text-white" title="Kembali ke kanvas"><Minimize2 className="h-4 w-4" /></button> : <button onClick={onOpenFullPage} className="rounded-lg p-2 text-gray-400 hover:bg-white/5 hover:text-white" title="Buka halaman penuh"><Maximize2 className="h-4 w-4" /></button>}
+              <button ref={closeButtonRef} onClick={close} className="rounded-lg p-2 text-gray-400 hover:bg-white/5 hover:text-white" aria-label="Tutup detail"><X className="h-5 w-5" /></button>
             </div>
           </div>
           {saveStatus === 'conflict' && <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-950/25 p-2 text-xs text-rose-100"><CircleAlert className="h-4 w-4" /> Versi graph berubah di server. <button onClick={() => void reloadActiveProject()} className="underline">Muat ulang</button><button onClick={() => void retryActiveModuleSave()} className="underline">Coba lagi</button><span className="text-rose-200/70">Muat ulang untuk membandingkan versi server sebelum melanjutkan.</span></div>}
@@ -218,6 +226,11 @@ function Summary({ node, module, readiness, openItems, overdueItems, onTasks }: 
 function Info({ label, value }: { label: string; value?: string }) { return <div><dt className="text-[10px] font-mono uppercase text-gray-500">{label}</dt><dd className="mt-1 text-sm text-gray-200">{value || 'Belum diisi'}</dd></div>; }
 function LoadingState() { return <div className="flex min-h-48 items-center justify-center gap-2 text-sm text-gray-400"><Loader2 className="h-4 w-4 animate-spin" /> Memuat detail node…</div>; }
 function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) { return <div className="rounded-xl border border-rose-500/30 bg-rose-950/20 p-4 text-sm text-rose-100"><AlertTriangle className="mb-2 h-5 w-5" />{message}<button onClick={onRetry} className="ml-3 underline">Coba lagi</button></div>; }
+function UnavailableState({ title, message }: { title: string; message: string }) { return <div role="alert" className="rounded-xl border border-amber-500/30 bg-amber-950/20 p-4 text-sm text-amber-100"><AlertTriangle className="mb-2 h-5 w-5" /><p className="font-semibold">{title}</p><p className="mt-1">{message}</p></div>; }
 function TaskSection({ items, value, submitting, onChange, onSubmit }: { items: WorkItem[]; value: string; submitting: boolean; onChange: (value: string) => void; onSubmit: (event: React.FormEvent) => void }) { return <div className="space-y-4"><form onSubmit={onSubmit} className="flex gap-2"><input value={value} onChange={(event) => onChange(event.target.value)} placeholder="Tambahkan task untuk node ini" className="min-w-0 flex-1 rounded-lg border border-white/10 bg-[#1A1A1D] px-3 py-2 text-sm text-white outline-none focus:border-[#C5A267]" /><button disabled={submitting || !value.trim()} className="rounded-lg bg-[#C5A267] px-3 text-black disabled:opacity-50" aria-label="Tambah task"><Plus className="h-4 w-4" /></button></form>{items.length ? <ul className="space-y-2">{items.map((item) => <li key={item.id} className="flex items-center justify-between rounded-xl border border-white/10 bg-[#131315] p-3"><div><p className="text-sm font-semibold text-white">{item.key} · {item.title}</p><p className="mt-1 text-xs text-gray-400">{item.status}{item.due_date && ` · Tenggat ${item.due_date}`}</p></div><ClipboardList className="h-4 w-4 text-[#C5A267]" /></li>)}</ul> : <p className="rounded-xl border border-dashed border-white/15 p-5 text-sm text-gray-500">Belum ada task yang ditautkan ke node ini.</p>}</div>; }
 function DiscussionSection({ comments, value, submitting, onChange, onSubmit }: { comments: NodeComment[]; value: string; submitting: boolean; onChange: (value: string) => void; onSubmit: (event: React.FormEvent) => void }) { return <div className="space-y-4"><form onSubmit={onSubmit} className="space-y-2"><label className="text-sm font-semibold text-white">Diskusi node</label><textarea value={value} onChange={(event) => onChange(event.target.value)} placeholder="Tulis komentar…" className="min-h-24 w-full rounded-lg border border-white/10 bg-[#1A1A1D] p-3 text-sm text-white outline-none focus:border-[#C5A267]" /><button disabled={submitting || !value.trim()} className="flex items-center gap-2 rounded-lg bg-[#C5A267] px-3 py-2 text-sm font-semibold text-black disabled:opacity-50"><Send className="h-4 w-4" />Kirim komentar</button></form>{comments.length ? <ul className="space-y-3">{comments.map((comment) => <li key={comment.id} className="rounded-xl border border-white/10 bg-[#131315] p-3"><p className="text-sm text-gray-200">{comment.body}</p><p className="mt-2 text-[10px] font-mono text-gray-500">{comment.author_id} · {new Date(comment.created_at).toLocaleString()}</p></li>)}</ul> : <p className="rounded-xl border border-dashed border-white/15 p-5 text-sm text-gray-500">Belum ada komentar pada node ini.</p>}</div>; }
-function ActivitySection() { return <div className="rounded-xl border border-white/10 bg-[#131315] p-5 text-sm text-gray-400"><CheckCircle2 className="mb-2 h-5 w-5 text-[#C5A267]" />Aktivitas node belum tersedia dari API. Surface ini tidak menampilkan status real-time atau riwayat sintetis.</div>; }
+function ActivitySection({ activity }: { activity: NodeActivity[] }) {
+  const labels: Record<string, string> = { comment_created: 'Komentar ditambahkan', delivery_fields_changed: 'Detail delivery diperbarui', updated: 'Task diperbarui', transitioned: 'Status task diubah' };
+  if (!activity.length) return <div className="rounded-xl border border-dashed border-white/15 p-5 text-sm text-gray-500"><CheckCircle2 className="mb-2 h-5 w-5 text-[#C5A267]" />Belum ada aktivitas tercatat untuk node ini.</div>;
+  return <ol className="space-y-3">{activity.map((entry) => <li key={entry.id} className="rounded-xl border border-white/10 bg-[#131315] p-3"><p className="text-sm font-medium text-white">{labels[entry.action] || entry.action}</p><p className="mt-1 text-xs text-gray-400">{entry.actor_id || 'Sistem'} · {new Date(entry.created_at).toLocaleString()}</p></li>)}</ol>;
+}

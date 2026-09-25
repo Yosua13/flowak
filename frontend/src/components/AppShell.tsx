@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useStore } from '../store/useStore';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
@@ -15,6 +15,8 @@ import AnalyticsView from './analytics/AnalyticsView';
 import KanbanView from './kanban/KanbanView';
 import TeamView from './team/TeamView';
 import Inspector from './inspector/Inspector';
+import NodeDetailPage from './inspector/NodeDetailPage';
+import { nodeCanvasPath, nodeDetailPath, parseNodeDetailRoute, type NodeDetailRoute } from './inspector/nodeDetailRoute';
 import Login from './auth/Login';
 import Register from './auth/Register';
 import ProjectHub from './dashboard/ProjectHub';
@@ -23,12 +25,33 @@ import { motion, AnimatePresence } from 'motion/react';
 
 export default function AppShell() {
   const { screen, view, activeProjectId, activeId, selectedNodeId, selectedWorkItemKey, initializeStore, selectProject, selectModule, selectNode, selectWorkItem, setView, selectedNotif, setSelectedNotif } = useStore();
+  const [nodeRoute, setNodeRoute] = useState<NodeDetailRoute | null>(() => parseNodeDetailRoute(window.location.pathname));
+  const [nodeRouteState, setNodeRouteState] = useState<'loading' | 'unavailable' | 'ready'>(() => nodeRoute ? 'loading' : 'ready');
+
+  const loadNodeRoute = useCallback(async (route: NodeDetailRoute) => {
+    setNodeRouteState('loading');
+    await selectProject(route.projectId);
+    if (useStore.getState().activeProjectId !== route.projectId) {
+      setNodeRouteState('unavailable');
+      return;
+    }
+    selectModule(route.moduleId);
+    selectNode(route.nodeId);
+    setView('canvas');
+    setNodeRouteState('ready');
+  }, [selectModule, selectNode, selectProject, setView]);
 
   useEffect(() => {
     const restoreSharedDetail = async () => {
       const params = new URLSearchParams(window.location.search);
+      const detailRoute = parseNodeDetailRoute(window.location.pathname);
       const workItemPath = window.location.pathname.match(/^\/projects\/([^/]+)\/work-items\/([^/]+)\/?$/);
       await initializeStore();
+      if (detailRoute) {
+        setNodeRoute(detailRoute);
+        await loadNodeRoute(detailRoute);
+        return;
+      }
       const projectId = workItemPath ? decodeURIComponent(workItemPath[1]) : params.get('project');
       const moduleId = params.get('module');
       const nodeId = params.get('node');
@@ -43,9 +66,20 @@ export default function AppShell() {
       }
     };
     void restoreSharedDetail();
-  }, [initializeStore, selectModule, selectNode, selectProject, selectWorkItem, setView]);
+  }, [initializeStore, loadNodeRoute, selectModule, selectNode, selectProject, selectWorkItem, setView]);
 
   useEffect(() => {
+    const restoreFromHistory = () => {
+      const route = parseNodeDetailRoute(window.location.pathname);
+      setNodeRoute(route);
+      if (route) void loadNodeRoute(route);
+    };
+    window.addEventListener('popstate', restoreFromHistory);
+    return () => window.removeEventListener('popstate', restoreFromHistory);
+  }, [loadNodeRoute]);
+
+  useEffect(() => {
+    if (nodeRoute) return;
     let path = '/';
     if (screen === 'login') {
       path = '/login/';
@@ -91,7 +125,23 @@ export default function AppShell() {
     }
     const newUrl = `${window.location.origin}${path}${params.size ? `?${params.toString()}` : ''}`;
     window.history.pushState({ screen, view }, '', newUrl);
-  }, [screen, view, activeProjectId, activeId, selectedNodeId, selectedWorkItemKey]);
+  }, [screen, view, activeProjectId, activeId, selectedNodeId, selectedWorkItemKey, nodeRoute]);
+
+  const openNodeDetailPage = () => {
+    if (!activeProjectId || !activeId || !selectedNodeId) return;
+    const route = { projectId: activeProjectId, moduleId: activeId, nodeId: selectedNodeId };
+    window.history.pushState({ nodeDetail: route }, '', nodeDetailPath(route));
+    setNodeRoute(route);
+    setNodeRouteState('ready');
+  };
+
+  const closeNodeDetailPage = () => {
+    if (!nodeRoute) return;
+    selectNode(null);
+    setView('canvas');
+    window.history.pushState({ view: 'canvas' }, '', nodeCanvasPath(nodeRoute));
+    setNodeRoute(null);
+  };
 
   // Routing based on screen state
   if (screen === 'login') {
@@ -100,6 +150,10 @@ export default function AppShell() {
 
   if (screen === 'register') {
     return <Register />;
+  }
+
+  if (nodeRoute) {
+    return <NodeDetailPage route={nodeRoute} routeState={nodeRouteState} onClose={closeNodeDetailPage} />;
   }
 
   if (screen === 'dashboard') {
@@ -149,7 +203,7 @@ export default function AppShell() {
       {/* Inspector - right zone (reveals only if a node is focused in Canvas) */}
       {selectedNodeId && (
         <div className="print:hidden max-[768px]:fixed max-[768px]:inset-0 max-[768px]:z-[100]">
-          <Inspector />
+          <Inspector onOpenFullPage={openNodeDetailPage} />
         </div>
       )}
 
