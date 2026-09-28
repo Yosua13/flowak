@@ -13,6 +13,7 @@ import DocView from './doc/DocView';
 import CalendarView from './calendar/CalendarView';
 import AnalyticsView from './analytics/AnalyticsView';
 import KanbanView from './kanban/KanbanView';
+import { parseWorkItemRoute } from './kanban/workItemRoute';
 import TeamView from './team/TeamView';
 import Inspector from './inspector/Inspector';
 import NodeDetailPage from './inspector/NodeDetailPage';
@@ -45,17 +46,17 @@ export default function AppShell() {
     const restoreSharedDetail = async () => {
       const params = new URLSearchParams(window.location.search);
       const detailRoute = parseNodeDetailRoute(window.location.pathname);
-      const workItemPath = window.location.pathname.match(/^\/projects\/([^/]+)\/work-items\/([^/]+)\/?$/);
+      const workItemRoute = parseWorkItemRoute(window.location.pathname);
       await initializeStore();
       if (detailRoute) {
         setNodeRoute(detailRoute);
         await loadNodeRoute(detailRoute);
         return;
       }
-      const projectId = workItemPath ? decodeURIComponent(workItemPath[1]) : params.get('project');
+      const projectId = workItemRoute ? workItemRoute.projectId : params.get('project');
       const moduleId = params.get('module');
       const nodeId = params.get('node');
-      const workItemKey = workItemPath ? decodeURIComponent(workItemPath[2]) : params.get('workItem');
+      const workItemKey = workItemRoute ? workItemRoute.key : params.get('workItem');
       if (!projectId) return;
       await selectProject(projectId);
       if (moduleId) selectModule(moduleId);
@@ -73,10 +74,16 @@ export default function AppShell() {
       const route = parseNodeDetailRoute(window.location.pathname);
       setNodeRoute(route);
       if (route) void loadNodeRoute(route);
+      const workItemRoute = parseWorkItemRoute(window.location.pathname);
+      if (workItemRoute) void (async () => {
+        await selectProject(workItemRoute.projectId);
+        setView('kanban');
+        selectWorkItem(workItemRoute.key);
+      })();
     };
     window.addEventListener('popstate', restoreFromHistory);
     return () => window.removeEventListener('popstate', restoreFromHistory);
-  }, [loadNodeRoute]);
+  }, [loadNodeRoute, selectProject, selectWorkItem, setView]);
 
   useEffect(() => {
     if (nodeRoute) return;

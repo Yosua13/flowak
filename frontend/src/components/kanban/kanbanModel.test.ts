@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkItem } from '../../domain/types';
-import { canTransitionWorkItem, columnMetrics, filterWorkItems, itemByKey } from './kanbanModel';
+import { artifactCountMap, canTransitionWorkItem, columnMetrics, filterWorkItems, focusTrapIndex, itemByKey, keyboardTransitionTarget, optimisticStatus } from './kanbanModel';
 
 const base: WorkItem = { id: 'wi-1', key: 'FLOW-1', project_id: 'p-1', module_id: 'm-1', node_id: 'n-1', facet_key: 'backend', type: 'Bug', title: 'Perbaiki kontrak', priority: 'high', points: 5, status: 'Backlog', assignee_id: 'u-1', reporter_id: 'u-2', row_version: 1, due_date: '2026-09-10' };
 const filters = { search: '', moduleId: 'all', assigneeId: 'all', type: 'all', facet: 'all', priority: 'all', includeCanceled: false };
@@ -26,5 +26,23 @@ describe('kanban model', () => {
   it('restores selection from a work item key', () => {
     expect(itemByKey([base], 'FLOW-1')).toEqual(base);
     expect(itemByKey([base], 'FLOW-404')).toBeUndefined();
+  });
+
+  it('uses the same policy for keyboard transitions and restores an optimistic status from the previous list', () => {
+    expect(keyboardTransitionTarget('Backlog', 'next')).toBe('Ready');
+    expect(keyboardTransitionTarget('Backlog', 'previous')).toBeNull();
+    expect(keyboardTransitionTarget('In Review', 'next')).toBe('Blocked');
+    const previous = [base];
+    expect(optimisticStatus(previous, base.id, 'Ready')[0].status).toBe('Ready');
+    expect(previous[0].status).toBe('Backlog');
+  });
+
+  it('maps artifact response counts without a board reload', () => {
+    expect(artifactCountMap([{ id: 'wi-1', comment_count: 2, attachment_count: 1 }])).toEqual({ 'wi-1': { comments: 2, attachments: 1 } });
+  });
+
+  it('wraps modal keyboard focus at the first and final controls', () => {
+    expect(focusTrapIndex(0, 3, true)).toBe(2);
+    expect(focusTrapIndex(2, 3, false)).toBe(0);
   });
 });
