@@ -100,6 +100,7 @@ func main() {
 		api.GET("/projects/:id/derived-view-data", handlers.GetDerivedViewDataHandler)
 		api.POST("/projects/:id/work-items", handlers.CreateWorkItemHandler)
 		api.GET("/work-items/:key", handlers.GetWorkItemHandler)
+		api.GET("/work-items/:key/activity", handlers.GetWorkItemActivityHandler)
 		api.GET("/work-items/:key/artifacts", handlers.GetWorkItemArtifactsHandler)
 		api.POST("/work-items/:key/artifacts/:kind", handlers.MutateWorkItemArtifactHandler)
 		api.PATCH("/work-items/:key/artifacts/:kind/:artifactId", handlers.MutateWorkItemArtifactHandler)
