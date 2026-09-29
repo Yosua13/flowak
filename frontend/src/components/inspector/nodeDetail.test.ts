@@ -15,6 +15,7 @@ const workItem: WorkItem = {
 describe('node detail helpers', () => {
   it('calculates readiness from documented business and facet fields', () => {
     expect(nodeCompleteness(node)).toBe(100);
+    expect(nodeCompleteness({ ...node, completeness: 42 })).toBe(42);
   });
 
   it('lists only outgoing next paths for the selected node', () => {

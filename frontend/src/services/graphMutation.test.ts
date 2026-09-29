@@ -30,4 +30,11 @@ describe('graph mutation', () => {
     await expect(saveGraphOptimistically(graph, 'project-1', rollback)).resolves.toBe('conflict');
     expect(rollback).toHaveBeenCalledOnce();
   });
+
+  it('sends tombstones with the graph save payload', async () => {
+    const graphWithDeletes: Module = { ...graph, deletedNodes: [{ id: 'node-1', rowVersion: 2 }], deletedEdges: [{ id: 'edge-1', rowVersion: 3 }] };
+    const put = vi.spyOn(apiClient, 'put').mockResolvedValue({});
+    await saveGraphOptimistically(graphWithDeletes, 'project-1', vi.fn());
+    expect(put).toHaveBeenCalledWith('/modules/module-1', expect.objectContaining({ deletedNodes: [{ id: 'node-1', rowVersion: 2 }], deletedEdges: [{ id: 'edge-1', rowVersion: 3 }] }), undefined);
+  });
 });

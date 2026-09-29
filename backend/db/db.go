@@ -13,6 +13,25 @@ import (
 
 var DB *sql.DB
 
+// InitReadOnly opens the application database without creating databases or
+// running migrations. Callers must use read-only transactions for execution.
+func InitReadOnly() error {
+	cfg := config.ActiveConfig
+	connStr := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable",
+		cfg.DBUser, cfg.DBPassword, cfg.DBHost, cfg.DBPort, cfg.DBName)
+
+	readOnlyDB, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return fmt.Errorf("open read-only database connection: %w", err)
+	}
+	if err := readOnlyDB.Ping(); err != nil {
+		readOnlyDB.Close()
+		return fmt.Errorf("ping read-only database connection: %w", err)
+	}
+	DB = readOnlyDB
+	return nil
+}
+
 // InitDB connects to PostgreSQL, ensures the DB exists, and runs migrations
 func InitDB() {
 	cfg := config.ActiveConfig
@@ -95,6 +114,10 @@ func runMigrations() {
 
 	// Collaboration events, immutable baselines, and notification outbox.
 	runMigrationFromFile(DB, "11_collaboration_events.sql")
+
+	// Keep transition audit history compatible with databases created before
+	// from_status was recorded for every Kanban move.
+	runMigrationFromFile(DB, "12_work_item_transition_history_compatibility.sql")
 
 	log.Println("Migrations executed successfully.")
 }

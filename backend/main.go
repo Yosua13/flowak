@@ -100,12 +100,18 @@ func main() {
 		api.GET("/projects/:id/derived-view-data", handlers.GetDerivedViewDataHandler)
 		api.POST("/projects/:id/work-items", handlers.CreateWorkItemHandler)
 		api.GET("/work-items/:key", handlers.GetWorkItemHandler)
+		api.GET("/work-items/:key/activity", handlers.GetWorkItemActivityHandler)
+		api.GET("/work-items/:key/artifacts", handlers.GetWorkItemArtifactsHandler)
+		api.POST("/work-items/:key/artifacts/:kind", handlers.MutateWorkItemArtifactHandler)
+		api.PATCH("/work-items/:key/artifacts/:kind/:artifactId", handlers.MutateWorkItemArtifactHandler)
+		api.DELETE("/work-items/:key/artifacts/:kind/:artifactId", handlers.MutateWorkItemArtifactHandler)
 		api.PATCH("/work-items/:key", handlers.UpdateWorkItemHandler)
 		api.POST("/work-items/:key/transitions", handlers.TransitionWorkItemHandler)
 		api.POST("/work-items/:key/comments", handlers.CreateWorkItemCommentHandler)
 		api.GET("/work-items/:key/comments", handlers.ListWorkItemCommentsHandler)
 		api.GET("/nodes/:id/comments", handlers.ListNodeCommentsHandler)
 		api.POST("/nodes/:id/comments", handlers.CreateNodeCommentHandler)
+		api.GET("/nodes/:id/activity", handlers.ListNodeActivityHandler)
 		api.PATCH("/comments/:id", handlers.UpdateCommentHandler)
 
 		// Server-side only API contract execution; browser never calls targets directly.

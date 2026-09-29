@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"strings"
 	"testing"
 
 	"backend/models"
@@ -42,5 +43,11 @@ func TestWorkItemTransitionsAreExplicit(t *testing.T) {
 	}
 	if statusTransitionAllowed("Done", "In Progress") {
 		t.Fatal("Done items must not reopen without an explicit workflow policy")
+	}
+}
+
+func TestTransitionStatementUsesStableStatusParameterType(t *testing.T) {
+	if !strings.Contains(transitionWorkItemSQL, "status=$1::varchar") || !strings.Contains(transitionWorkItemSQL, "CASE WHEN $1::varchar") {
+		t.Fatal("transition SQL must cast the reused status parameter for PostgreSQL prepared statements")
 	}
 }

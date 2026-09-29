@@ -6,6 +6,7 @@
 import React from 'react';
 import { Node, BusinessFacet } from '../../domain/types';
 import { useStore } from '../../store/useStore';
+import TextRows from './TextRows';
 
 interface BisnisTabProps {
   node: Node;
@@ -33,7 +34,6 @@ export default function BisnisTab({ node }: BisnisTabProps) {
     { id: 'output', label: 'Hasil Output Data', placeholder: 'Konfirmasi kelulusan, penolakan...', type: 'textarea' },
     { id: 'exceptionPaths', label: 'Alur Pengecualian / Gagal', placeholder: 'Jika data tidak valid, arahkan ke revisi atau penolakan...', type: 'textarea' },
     { id: 'acceptanceCriteria', label: 'Kriteria Selesai', placeholder: 'Kondisi yang harus terpenuhi agar langkah dianggap siap.', type: 'textarea' },
-    { id: 'referenceLinks', label: 'Reference links', placeholder: 'Tautan dokumen atau evidence terkait...', type: 'textarea' },
   ];
 
   return (
@@ -73,12 +73,17 @@ export default function BisnisTab({ node }: BisnisTabProps) {
            </div>
         ))}
 
-        <div className="space-y-1">
-          <label className="block text-[9px] font-bold text-gray-400 font-mono uppercase tracking-wider">Aturan bisnis (satu aturan per baris)</label>
-          <textarea value={(doc.rules || []).map((rule) => `${rule.code || ''} [${rule.severity || 'medium'}] ${rule.description}`).join('\n')}
-            onChange={(e) => updateDoc(node.id, { rules: e.target.value.split('\n').filter(Boolean).map((line) => ({ description: line })) })} placeholder="CUTI-001 [high] Saldo cuti harus cukup" rows={3}
-            className="w-full text-xs border border-white/5 rounded-xl px-3 py-2 bg-[#1A1A1D] text-white outline-none focus:ring-1 focus:ring-[#C5A267] h-20 resize-none" />
+        <div className="space-y-2">
+          <span className="block text-[9px] font-bold text-gray-400 uppercase tracking-wider">Aturan bisnis</span>
+          {(doc.rules || []).map((rule, index) => <div key={index} className="grid gap-2 sm:grid-cols-[90px_100px_1fr_auto]">
+            <input aria-label={`Kode aturan ${index + 1}`} className="input" placeholder="Kode" value={rule.code || ''} onChange={(event) => updateDoc(node.id, { rules: (doc.rules || []).map((current, position) => position === index ? { ...current, code: event.target.value } : current) })} />
+            <select aria-label={`Severity aturan ${index + 1}`} className="input" value={rule.severity || 'medium'} onChange={(event) => updateDoc(node.id, { rules: (doc.rules || []).map((current, position) => position === index ? { ...current, severity: event.target.value as typeof rule.severity } : current) })}>{['low', 'medium', 'high', 'critical'].map((level) => <option key={level}>{level}</option>)}</select>
+            <input aria-label={`Deskripsi aturan ${index + 1}`} className="input" placeholder="Deskripsi aturan" value={rule.description} onChange={(event) => updateDoc(node.id, { rules: (doc.rules || []).map((current, position) => position === index ? { ...current, description: event.target.value } : current) })} />
+            <button type="button" className="text-xs text-gray-400" onClick={() => updateDoc(node.id, { rules: (doc.rules || []).filter((_, position) => position !== index) })}>Hapus</button>
+          </div>)}
+          <button type="button" className="text-xs text-[#C5A267]" onClick={() => updateDoc(node.id, { rules: [...(doc.rules || []), { description: 'Aturan baru', severity: 'medium' }] })}>+ Tambah aturan</button>
         </div>
+        <TextRows label="Reference links" value={doc.referenceLinks} onChange={(value) => updateDoc(node.id, { referenceLinks: value })} placeholder="https://..." />
        </div>
     </div>
   );

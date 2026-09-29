@@ -36,7 +36,7 @@ function downloadFile(content: string, filename: string, contentType: string) {
  * Export module to raw canonical JSON
  */
 export function exportToJson(module: Module) {
-  const jsonString = JSON.stringify({ schemaVersion: module.schemaVersion, exportedAt: new Date().toISOString(), module }, null, 2);
+  const jsonString = JSON.stringify({ schemaVersion: module.schemaVersion, exportedAt: new Date().toISOString(), module: redactSensitive(module) }, null, 2);
   downloadFile(jsonString, `${module.name.toLowerCase().replace(/\s+/g, '_')}_canonical.json`, 'application/json');
 }
 
@@ -44,6 +44,7 @@ export function exportToJson(module: Module) {
  * Export module to polished readable Markdown (PDF printable text)
  */
 export function generateMarkdown(module: Module, derived?: DerivedViewData | null): string {
+  module = redactSensitive(module) as Module;
   let md = `# Alur Kerja: ${module.name}\n\n`;
   if (module.description) {
     md += `> ${module.description}\n\n`;
@@ -118,6 +119,7 @@ export function exportToMarkdown(module: Module) {
  * Export module Backend facets to OpenAPI 3.1.0 contract
  */
 export function generateOpenApi(module: Module): string {
+  module = redactSensitive(module) as Module;
   const openapi: any = {
     openapi: '3.1.0',
     info: {
@@ -199,7 +201,19 @@ export function generateOpenApi(module: Module): string {
 const sensitiveKey = /authorization|cookie|password|secret|token|api[_-]?key/i;
 export function redactSensitive(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redactSensitive);
-  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, sensitiveKey.test(key) ? '{{REDACTED}}' : redactSensitive(item)]));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => {
+    if (sensitiveKey.test(key) || key === 'curl') return [key, '{{REDACTED}}'];
+    if (key === 'auth') return [key, typeof item === 'string' && (/^\{\{[A-Z][A-Z0-9_]*\}\}$/.test(item) || item === 'none' || item === 'inherit') ? item : '{{API_TOKEN}}'];
+    if (key === 'endpoint' && typeof item === 'string') return [key, item.split('?')[0].split('#')[0]];
+    return [key, redactSensitive(item)];
+  }));
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try { return JSON.stringify(redactSensitive(JSON.parse(trimmed))); } catch { /* retain non-JSON text after redaction */ }
+    }
+    return value.replace(/Bearer\s+[^\s"']+/gi, 'Bearer {{REDACTED}}');
+  }
   return value;
 }
 
@@ -227,6 +241,7 @@ export function exportToOpenApi(module: Module) {
  * Export module to Excel-suitable CSV format
  */
 export function exportToCsv(module: Module) {
+  module = redactSensitive(module) as Module;
   // Column definitions for the Excel export
   const headers = [
     'ID Langkah',

@@ -7,6 +7,7 @@ import React from 'react';
 import { Node, Status, UiuxFacet } from '../../domain/types';
 import { useStore } from '../../store/useStore';
 import { ExternalLink } from 'lucide-react';
+import TextRows from './TextRows';
 
 interface UiuxTabProps {
   node: Node;
@@ -168,7 +169,7 @@ export default function UiuxTab({ node }: UiuxTabProps) {
 
         {([
           ['userGoal', 'Tujuan pengguna'], ['surface', 'Surface / platform'], ['designVersion', 'Versi desain'],
-          ['screenStates', 'Screen states'], ['interactions', 'Interaksi'], ['contentMessages', 'Konten & pesan'],
+          ['contentMessages', 'Konten & pesan'],
           ['responsiveIntent', 'Responsif'], ['accessibilityNotes', 'Aksesibilitas'], ['notes', 'Checklist handoff & evidence'],
         ] as const).map(([key, label]) => (
           <div className="space-y-1" key={key}>
@@ -177,6 +178,8 @@ export default function UiuxTab({ node }: UiuxTabProps) {
               className="w-full text-xs border border-white/5 rounded-xl px-3 py-2 bg-[#1A1A1D] text-white outline-none focus:ring-1 focus:ring-[#C5A267] h-16 resize-none" />
           </div>
         ))}
+		<TextRows label="State matrix" value={uiux.screenStates} onChange={(value) => handleFieldChange('screenStates', value)} placeholder="State dan tampilan" />
+		<TextRows label="Interaksi" value={uiux.interactions} onChange={(value) => handleFieldChange('interactions', value)} placeholder="Aksi dan respons" />
 
       </div>
     </div>
