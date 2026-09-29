@@ -53,3 +53,24 @@ export function columnMetrics(items: WorkItem[], status: WorkItemStatus, today =
 export function itemByKey(items: WorkItem[], key: string | null): WorkItem | undefined {
   return key ? items.find((item) => item.key === key) : undefined;
 }
+
+/** The keyboard path deliberately uses the same allowed edges as drag/drop. */
+export function keyboardTransitionTarget(status: WorkItemStatus, direction: 'next' | 'previous'): WorkItemStatus | null {
+  const index = BOARD_STATUSES.indexOf(status);
+  if (index < 0) return null;
+  const candidate = BOARD_STATUSES[index + (direction === 'next' ? 1 : -1)];
+  return candidate && canTransitionWorkItem(status, candidate) ? candidate : null;
+}
+
+export function optimisticStatus(items: WorkItem[], itemID: string, status: WorkItemStatus) {
+  return items.map((item) => item.id === itemID ? { ...item, status } : item);
+}
+
+export function artifactCountMap(entries: Array<{ id: string; comment_count: number; attachment_count: number }>) {
+  return Object.fromEntries(entries.map((entry) => [entry.id, { comments: entry.comment_count, attachments: entry.attachment_count }]));
+}
+
+export function focusTrapIndex(currentIndex: number, controlCount: number, backwards: boolean) {
+  if (controlCount < 1) return -1;
+  return backwards ? (currentIndex - 1 + controlCount) % controlCount : (currentIndex + 1) % controlCount;
+}

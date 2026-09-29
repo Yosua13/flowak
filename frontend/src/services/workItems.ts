@@ -10,6 +10,7 @@ export interface WorkItemInput {
 
 export interface WorkItemPage { items: WorkItem[]; next_cursor: string; sort: 'newest' | 'oldest'; }
 export type ArtifactKind = 'checklist' | 'watchers' | 'links' | 'attachments';
+export interface WorkItemActivity { id: string; action: string; actor_id?: ID; created_at: string; }
 
 /** API contract only; state remains server-authoritative. */
 export const workItemsApi = {
@@ -49,6 +50,9 @@ export const workItemsApi = {
   },
   comments(key: string) {
     return apiClient.get<Array<{ id: ID; parent_id?: ID; author_id: ID; body: string; resolved_at?: string; created_at: string; updated_at: string }>>(`/work-items/${key}/comments`);
+  },
+  activity(key: string) {
+    return apiClient.get<WorkItemActivity[]>(`/work-items/${encodeURIComponent(key)}/activity`);
   },
   comment(key: string, body: string) {
     return apiClient.post<{ id: ID; body: string }>(`/work-items/${key}/comments`, { body });
