@@ -1,0 +1,6 @@
+import { apiClient } from './apiClient';
+import type { HttpMethod } from '../domain/types';
+export interface APIEnvironment { id:string; name:string; approved_base_url:string; is_default:boolean; }
+export interface APIContract { id:string; name:string; method:HttpMethod; relative_path:string; body_template?:string; timeout_ms:number; version:number; }
+export interface APIRun { id:string; status:string; status_code?:number; duration_ms?:number; response_size?:number; headers?:Record<string,string>; body?:string; body_truncated?:boolean; request_id:string; policy_decision:string; }
+export const apiContracts = { environments:(projectId:string)=>apiClient.get<APIEnvironment[]>(`/projects/${projectId}/environments`), requests:(nodeId:string)=>apiClient.get<APIContract[]>(`/nodes/${nodeId}/api-requests`), createRequest:(nodeId:string,input:Omit<APIContract,'id'|'version'>)=>apiClient.post<{id:string}>(`/nodes/${nodeId}/api-requests`,input), run:(id:string,input:{environment_id:string;method?:string;relative_path?:string;headers?:Record<string,string>;body?:string})=>apiClient.post<APIRun>(`/api-requests/${id}/runs`,input), history:(id:string)=>apiClient.get<APIRun[]>(`/api-requests/${id}/runs`), saveEvidence:(id:string)=>apiClient.request(`/api-runs/${id}/evidence`,{method:'PATCH'}) };
