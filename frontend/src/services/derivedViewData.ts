@@ -9,6 +9,20 @@ export interface DecisionComment { id: ID; work_item_id?: ID; body: string; reso
 export interface Evidence { id: ID; kind: 'attachment'; label: string; work_item_id?: ID; node_id?: ID; created_at: string; }
 export interface DerivedViewData { work_items: WorkItem[]; history: StatusHistory[]; facet_reviews: FacetReview[]; baselines: ModuleBaseline[]; comments: DecisionComment[]; evidence: Evidence[]; generated_at: string; }
 
+export type CalendarEventKind = 'start' | 'due' | 'review' | 'baseline';
+export interface DerivedCalendarEvent { id: string; date: string; title: string; detail: string; kind: CalendarEventKind; }
+
+// Calendar, documents, metrics, and status all consume this same normalized
+// response. Keeping the calendar projection here makes that contract testable
+// without coupling it to the rendered UI.
+export function buildCalendarEvents(data: DerivedViewData): DerivedCalendarEvent[] {
+  return [
+    ...data.work_items.flatMap((item) => [item.start_date && { id: `${item.id}-start`, date: item.start_date, title: item.title, detail: `${item.key} · mulai`, kind: 'start' as const }, item.due_date && { id: `${item.id}-due`, date: item.due_date, title: item.title, detail: `${item.key} · ${item.status}`, kind: 'due' as const }].filter(Boolean) as DerivedCalendarEvent[]),
+    ...data.facet_reviews.map((review) => ({ id: `${review.node_id}-${review.role_key}`, date: review.due_date, title: review.node_label, detail: `${review.role_key.toUpperCase()} · review ${review.readiness}`, kind: 'review' as const })),
+    ...data.baselines.map((baseline) => ({ id: `${baseline.module_id}-${baseline.version}`, date: baseline.created_at, title: `Baseline v${baseline.version}`, detail: 'Versi modul tercatat', kind: 'baseline' as const })),
+  ];
+}
+
 export function derivedViewData(projectId: ID, moduleId?: ID, facetKey?: string, signal?: AbortSignal) {
   const query = new URLSearchParams();
   if (moduleId) query.set('module_id', moduleId);

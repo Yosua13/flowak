@@ -36,8 +36,12 @@ function downloadFile(content: string, filename: string, contentType: string) {
  * Export module to raw canonical JSON
  */
 export function exportToJson(module: Module) {
-  const jsonString = JSON.stringify({ schemaVersion: module.schemaVersion, exportedAt: new Date().toISOString(), module: redactSensitive(module) }, null, 2);
+  const jsonString = generateCanonicalExport(module);
   downloadFile(jsonString, `${module.name.toLowerCase().replace(/\s+/g, '_')}_canonical.json`, 'application/json');
+}
+
+export function generateCanonicalExport(module: Module, exportedAt = new Date().toISOString()): string {
+  return JSON.stringify({ schemaVersion: module.schemaVersion, exportedAt, module: redactSensitive(module) }, null, 2);
 }
 
 /**
@@ -203,6 +207,7 @@ export function redactSensitive(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redactSensitive);
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => {
     if (sensitiveKey.test(key) || key === 'curl') return [key, '{{REDACTED}}'];
+    if (key === 'response') return [key, '[redacted response example]'];
     if (key === 'auth') return [key, typeof item === 'string' && (/^\{\{[A-Z][A-Z0-9_]*\}\}$/.test(item) || item === 'none' || item === 'inherit') ? item : '{{API_TOKEN}}'];
     if (key === 'endpoint' && typeof item === 'string') return [key, item.split('?')[0].split('#')[0]];
     return [key, redactSensitive(item)];

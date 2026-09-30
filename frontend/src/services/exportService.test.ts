@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateOpenApi, generateRedactedCurl, redactSensitive } from './exportService';
+import { generateCanonicalExport, generateOpenApi, generateRedactedCurl, redactSensitive } from './exportService';
 import type { Module } from '../domain/types';
 
 const module: Module = { id: 'm1', name: 'Checkout', nodes: [{ id: 'n1', type: 'process', label: 'Bayar', x: 0, y: 0, doc: {}, roles: { backend: { method: 'POST', endpoint: '/payments?debug=true', auth: 'bearer', request: '{"email":"a@b.test","token":"private"}', response: '{"access_token":"private"}' } } }], edges: [], schemaVersion: 7 };
@@ -17,5 +17,11 @@ describe('safe exports', () => {
     expect(openapi).not.toContain('private');
     expect(openapi).toContain('"type": "object"');
     expect(generateRedactedCurl(module)).toContain('{{API_TOKEN}}');
+  });
+  it('keeps the schema version while removing response payloads from canonical JSON', () => {
+    const canonical = generateCanonicalExport(module, '2026-01-01T00:00:00.000Z');
+    expect(JSON.parse(canonical)).toMatchObject({ schemaVersion: 7, exportedAt: '2026-01-01T00:00:00.000Z' });
+    expect(canonical).not.toContain('private');
+    expect(canonical).toContain('[redacted response example]');
   });
 });

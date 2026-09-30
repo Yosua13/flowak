@@ -1,10 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, Loader2, TriangleAlert } from 'lucide-react';
 import { useStore } from '../../store/useStore';
-import { useDerivedViewData } from '../../services/derivedViewData';
+import { buildCalendarEvents, type DerivedCalendarEvent, useDerivedViewData } from '../../services/derivedViewData';
 
 type EventKind = 'start' | 'due' | 'review' | 'baseline';
-interface CalendarEvent { id: string; date: string; title: string; detail: string; kind: EventKind; }
 const monthNames = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 const colors: Record<EventKind, string> = { start: 'border-sky-400 text-sky-200', due: 'border-amber-400 text-amber-200', review: 'border-violet-400 text-violet-200', baseline: 'border-emerald-400 text-emerald-200' };
 
@@ -13,13 +12,9 @@ export default function CalendarView() {
   const module = modules.find((entry) => entry.id === activeId);
   const { data, loading, error } = useDerivedViewData(activeProjectId, module?.id);
   const today = new Date(); const [cursor, setCursor] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
-  const events = useMemo<CalendarEvent[]>(() => {
+  const events = useMemo<DerivedCalendarEvent[]>(() => {
     if (!data) return [];
-    return [
-      ...data.work_items.flatMap((item) => [item.start_date && { id: `${item.id}-start`, date: item.start_date, title: item.title, detail: `${item.key} · mulai`, kind: 'start' as const }, item.due_date && { id: `${item.id}-due`, date: item.due_date, title: item.title, detail: `${item.key} · ${item.status}`, kind: 'due' as const }].filter(Boolean) as CalendarEvent[]),
-      ...data.facet_reviews.map((review) => ({ id: `${review.node_id}-${review.role_key}`, date: review.due_date, title: review.node_label, detail: `${review.role_key.toUpperCase()} · review ${review.readiness}`, kind: 'review' as const })),
-      ...data.baselines.map((baseline) => ({ id: `${baseline.module_id}-${baseline.version}`, date: baseline.created_at, title: `Baseline v${baseline.version}`, detail: 'Versi modul tercatat', kind: 'baseline' as const })),
-    ];
+    return buildCalendarEvents(data);
   }, [data]);
   if (!module) return <State message="Pilih modul untuk melihat jadwal." />;
   if (loading) return <State message="Memuat event jadwal..." loading />;
