@@ -23,6 +23,7 @@ import Register from './auth/Register';
 import ProjectHub from './dashboard/ProjectHub';
 import { Loader2, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { subscribeProjectEvents } from '../services/projectEvents';
 
 export default function AppShell() {
   const { screen, view, activeProjectId, activeId, selectedNodeId, selectedWorkItemKey, initializeStore, selectProject, selectModule, selectNode, selectWorkItem, setView, selectedNotif, setSelectedNotif } = useStore();
@@ -68,6 +69,17 @@ export default function AppShell() {
     };
     void restoreSharedDetail();
   }, [initializeStore, loadNodeRoute, selectModule, selectNode, selectProject, selectWorkItem, setView]);
+
+  useEffect(() => {
+    if (!activeProjectId || !useStore.getState().isAuthenticated) return;
+    let reloading = false;
+    const subscription = subscribeProjectEvents(activeProjectId, () => {
+      if (reloading) return;
+      reloading = true;
+      void Promise.all([useStore.getState().reloadActiveProject(), useStore.getState().loadNotifications()]).finally(() => { reloading = false; });
+    });
+    return () => subscription.close();
+  }, [activeProjectId]);
 
   useEffect(() => {
     const restoreFromHistory = () => {
