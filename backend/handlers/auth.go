@@ -204,6 +204,7 @@ func LoginHandler(c *gin.Context) {
 		return
 	}
 	setRefreshCookie(c, refreshToken)
+	setSSEAccessCookie(c, tokenString)
 
 	resp := models.UserLoginResponse{
 		Token: tokenString, User: user, OrganizationID: organizationID, OrganizationRole: organizationRole,
@@ -249,6 +250,14 @@ func setRefreshCookie(c *gin.Context, token string) {
 	c.SetCookie("flowak_refresh", token, 30*24*60*60, "/api/auth", "", config.ActiveConfig.Environment == "production", true)
 }
 
+// EventSource cannot attach an Authorization header. This short-lived,
+// HttpOnly cookie is scoped to project routes and accepted only by the GET
+// event stream, so access tokens never need to be placed in a URL.
+func setSSEAccessCookie(c *gin.Context, token string) {
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie("flowak_sse_access", token, 15*60, "/api/projects", "", config.ActiveConfig.Environment == "production", true)
+}
+
 // RefreshHandler rotates the opaque refresh token so a logged-out or reused
 // session cannot mint another access token.
 func RefreshHandler(c *gin.Context) {
@@ -285,6 +294,7 @@ func RefreshHandler(c *gin.Context) {
 		return
 	}
 	setRefreshCookie(c, newRefresh)
+	setSSEAccessCookie(c, access)
 	c.JSON(http.StatusOK, models.UserLoginResponse{Token: access, User: user, OrganizationID: organizationID, OrganizationRole: organizationRole})
 }
 
@@ -293,6 +303,7 @@ func LogoutHandler(c *gin.Context) {
 		_, _ = db.DB.Exec(`UPDATE user_sessions SET revoked_at=CURRENT_TIMESTAMP WHERE refresh_token_hash=$1 AND revoked_at IS NULL`, tokenHash(token))
 	}
 	c.SetCookie("flowak_refresh", "", -1, "/api/auth", "", config.ActiveConfig.Environment == "production", true)
+	c.SetCookie("flowak_sse_access", "", -1, "/api/projects", "", config.ActiveConfig.Environment == "production", true)
 	c.Status(http.StatusNoContent)
 }
 

@@ -33,6 +33,11 @@ type Claims struct {
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" && c.Request.Method == http.MethodGet && strings.HasSuffix(c.Request.URL.Path, "/events") {
+			if token, err := c.Cookie("flowak_sse_access"); err == nil {
+				authHeader = "Bearer " + token
+			}
+		}
 		if authHeader == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header is required"})
 			c.Abort()

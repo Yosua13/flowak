@@ -28,6 +28,19 @@ func safeEventPayload(payload map[string]any) []byte {
 	value, _ := json.Marshal(payload)
 	return value
 }
+
+type collaborationEvent struct {
+	ID       string          `json:"id"`
+	Name     string          `json:"name"`
+	Project  string          `json:"project_id"`
+	ModuleID string          `json:"module_id,omitempty"`
+	Payload  json.RawMessage `json:"payload"`
+}
+
+func collaborationEnvelope(eventID, projectID, moduleID, name string, payload []byte) []byte {
+	envelope, _ := json.Marshal(collaborationEvent{ID: eventID, Name: name, Project: projectID, ModuleID: moduleID, Payload: payload})
+	return envelope
+}
 func emitProjectEvent(projectID string, event []byte) {
 	subscribers.Lock()
 	defer subscribers.Unlock()
@@ -51,8 +64,7 @@ func writeCollaborationEvent(tx *sql.Tx, projectID, moduleID, actorID, name, key
 	if err != nil {
 		return nil, err
 	}
-	envelope, _ := json.Marshal(gin.H{"schema_version": eventSchemaVersion, "id": eventID, "name": name, "project_id": projectID, "module_id": moduleID, "payload": json.RawMessage(raw)})
-	return envelope, nil
+	return collaborationEnvelope(eventID, projectID, moduleID, name, raw), nil
 }
 
 func ListNotificationsHandler(c *gin.Context) {
@@ -98,6 +110,7 @@ func ProjectEventsHandler(c *gin.Context) {
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
 	ch := make(chan []byte, 16)
 	subscribers.Lock()
 	if subscribers.byProject[projectID] == nil {
@@ -106,16 +119,60 @@ func ProjectEventsHandler(c *gin.Context) {
 	subscribers.byProject[projectID][ch] = struct{}{}
 	subscribers.Unlock()
 	defer func() { subscribers.Lock(); delete(subscribers.byProject[projectID], ch); subscribers.Unlock() }()
+	if lastID := strings.TrimSpace(c.GetHeader("Last-Event-ID")); lastID != "" {
+		if err := replayProjectEvents(c, projectID, lastID); err != nil {
+			fmt.Fprint(c.Writer, "event: invalidate\ndata: {\"schema_version\":1}\n\n")
+		}
+	}
 	fmt.Fprint(c.Writer, "event: ready\ndata: {\"schema_version\":1}\n\n")
 	c.Writer.Flush()
-	select {
-	case event := <-ch:
-		fmt.Fprintf(c.Writer, "event: change\ndata: %s\n\n", event)
-		c.Writer.Flush()
-	case <-time.After(25 * time.Second):
-		fmt.Fprint(c.Writer, "event: ping\ndata: {}\n\n")
-		c.Writer.Flush()
+	ping := time.NewTicker(25 * time.Second)
+	defer ping.Stop()
+	for {
+		select {
+		case event := <-ch:
+			writeSSEChange(c, event)
+		case <-ping.C:
+			fmt.Fprint(c.Writer, "event: ping\ndata: {}\n\n")
+			c.Writer.Flush()
+		case <-c.Request.Context().Done():
+			return
+		}
 	}
+}
+
+func writeSSEChange(c *gin.Context, raw []byte) {
+	var event collaborationEvent
+	if json.Unmarshal(raw, &event) != nil || event.ID == "" {
+		fmt.Fprint(c.Writer, "event: invalidate\ndata: {\"schema_version\":1}\n\n")
+	} else {
+		fmt.Fprintf(c.Writer, "id: %s\nevent: change\ndata: %s\n\n", event.ID, raw)
+	}
+	c.Writer.Flush()
+}
+
+// replayProjectEvents resumes a tenant-scoped stream after a browser reconnect.
+// Unknown or expired cursors deliberately return an error so the client reloads
+// canonical server state instead of assuming that its local cache is current.
+func replayProjectEvents(c *gin.Context, projectID, lastID string) error {
+	var createdAt time.Time
+	if err := db.DB.QueryRow(`SELECT created_at FROM event_outbox WHERE project_id=$1 AND id=$2`, projectID, lastID).Scan(&createdAt); err != nil {
+		return err
+	}
+	rows, err := db.DB.Query(`SELECT id,COALESCE(module_id,''),event_name,payload FROM event_outbox WHERE project_id=$1 AND (created_at,id) > ($2,$3) ORDER BY created_at,id LIMIT 101`, projectID, createdAt, lastID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, moduleID, name string
+		var payload []byte
+		if err := rows.Scan(&id, &moduleID, &name, &payload); err != nil {
+			return err
+		}
+		writeSSEChange(c, collaborationEnvelope(id, projectID, moduleID, name, payload))
+	}
+	return rows.Err()
 }
 
 func CreateMentionNotifications(tx *sql.Tx, projectID, commentID, authorID string, mentions []string) error {
@@ -127,14 +184,63 @@ func CreateMentionNotifications(tx *sql.Tx, projectID, commentID, authorID strin
 		if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM project_members WHERE project_id=$1 AND user_id=$2)`, projectID, userID).Scan(&member); err != nil || !member {
 			continue
 		}
-		notificationID := "ntf_" + GenerateUUID()
 		dedup := strings.Join([]string{"mention", commentID, userID}, ":")
-		_, err := tx.Exec(`INSERT INTO notifications(id,user_id,project_id,title,body,type,event_name,payload) VALUES($1,$2,$3,'Anda disebut dalam komentar','Buka work item untuk meninjau komentar.','info','comment.mentioned',jsonb_build_object('comment_id',$4)) ON CONFLICT DO NOTHING`, notificationID, userID, projectID, commentID)
-		if err != nil {
+		if err := createNotification(tx, userID, projectID, dedup, "Anda disebut dalam komentar", "Buka work item untuk meninjau komentar.", "comment.mentioned", map[string]any{"comment_id": commentID}); err != nil {
 			return err
 		}
-		_, err = tx.Exec(`INSERT INTO notification_outbox(id,notification_id,recipient_id,dedup_key) VALUES($1,$2,$3,$4) ON CONFLICT(dedup_key) DO NOTHING`, "nout_"+GenerateUUID(), notificationID, userID, dedup)
-		if err != nil {
+	}
+	return nil
+}
+
+func createNotification(tx *sql.Tx, userID, projectID, dedup, title, body, eventName string, payload map[string]any) error {
+	notificationID := "ntf_" + GenerateUUID()
+	raw := safeEventPayload(payload)
+	err := tx.QueryRow(`INSERT INTO notifications(id,user_id,project_id,title,body,type,event_name,payload,dedup_key) VALUES($1,$2,$3,$4,$5,'info',$6,$7::jsonb,$8) ON CONFLICT (dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING RETURNING id`, notificationID, userID, projectID, title, body, eventName, string(raw), dedup).Scan(&notificationID)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(`INSERT INTO notification_outbox(id,notification_id,recipient_id,dedup_key) VALUES($1,$2,$3,$4) ON CONFLICT(dedup_key) DO NOTHING`, "nout_"+GenerateUUID(), notificationID, userID, dedup)
+	return err
+}
+
+// CreateWatcherNotifications is called from the transaction that changes a
+// work item. The transition key makes retries idempotent, while actors never
+// notify themselves.
+func CreateWatcherNotifications(tx *sql.Tx, projectID, workItemID, actorID, transitionKey string) error {
+	rows, err := tx.Query(`SELECT user_id FROM work_item_watchers WHERE work_item_id=$1`, workItemID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var userID string
+		if err := rows.Scan(&userID); err != nil {
+			return err
+		}
+		if userID == actorID {
+			continue
+		}
+		if err := createNotification(tx, userID, projectID, "watcher:"+transitionKey+":"+userID, "Work item yang diikuti diperbarui", "Buka work item untuk meninjau perubahan terbaru.", "work_item.watcher_updated", map[string]any{"work_item_id": workItemID}); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
+// PruneExpiredCollaborationRecords is safe to invoke on process start. Version
+// baselines are immutable and intentionally excluded from expiry.
+func PruneExpiredCollaborationRecords() error {
+	for _, statement := range []string{
+		`DELETE FROM event_outbox WHERE expires_at < CURRENT_TIMESTAMP`,
+		`DELETE FROM notification_outbox WHERE expires_at < CURRENT_TIMESTAMP`,
+		`DELETE FROM notifications WHERE created_at < CURRENT_TIMESTAMP - INTERVAL '180 days'`,
+		`DELETE FROM activity_logs WHERE expires_at < CURRENT_TIMESTAMP`,
+		`DELETE FROM api_runs WHERE expires_at < CURRENT_TIMESTAMP`,
+	} {
+		if _, err := db.DB.Exec(statement); err != nil {
 			return err
 		}
 	}
