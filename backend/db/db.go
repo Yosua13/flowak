@@ -119,6 +119,9 @@ func runMigrations() {
 	// from_status was recorded for every Kanban move.
 	runMigrationFromFile(DB, "12_work_item_transition_history_compatibility.sql")
 
+	// Durable event replay, notification idempotency, and retention indexes.
+	runMigrationFromFile(DB, "14_durable_collaboration.sql")
+
 	log.Println("Migrations executed successfully.")
 }
 

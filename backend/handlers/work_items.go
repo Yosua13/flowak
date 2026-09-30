@@ -592,6 +592,10 @@ func TransitionWorkItemHandler(c *gin.Context) {
 		c.JSON(500, gin.H{"error": "failed to record transition"})
 		return
 	}
+	if err = CreateWatcherNotifications(tx, item.ProjectID, item.ID, userID, fmt.Sprintf("transition:%s:%d", item.ID, req.RowVersion)); err != nil {
+		c.JSON(500, gin.H{"error": "failed to notify work item watchers"})
+		return
+	}
 	if err = tx.Commit(); err != nil {
 		c.JSON(500, gin.H{"error": "failed to commit transition"})
 		return

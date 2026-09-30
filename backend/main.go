@@ -53,6 +53,9 @@ func main() {
 	// 2. Initialize database
 	db.InitDB()
 	defer db.DB.Close()
+	if err := handlers.PruneExpiredCollaborationRecords(); err != nil {
+		log.Printf("collaboration retention cleanup skipped: %v", err)
+	}
 
 	// 3. Setup router (Gin Engine)
 	r := gin.Default()
