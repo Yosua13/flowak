@@ -68,12 +68,20 @@ func writeCollaborationEvent(tx *sql.Tx, projectID, moduleID, actorID, name, key
 }
 
 func ListNotificationsHandler(c *gin.Context) {
+	cursor, ok := decodeTimelineCursor(c)
+	if !ok {
+		return
+	}
+	limit, ok := timelineLimit(c)
+	if !ok {
+		return
+	}
 	userID, err := middleware.GetUserID(c)
 	if err != nil {
 		c.JSON(401, gin.H{"error": "Unauthorized"})
 		return
 	}
-	rows, err := db.DB.Query(`SELECT id,title,body,type,read_at,created_at,event_name FROM notifications WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100`, userID)
+	rows, err := db.DB.Query(`SELECT id,title,body,type,read_at,created_at,event_name FROM notifications WHERE user_id=$1 AND ($2::timestamp IS NULL OR (created_at,id) < ($2,$3)) ORDER BY created_at DESC,id DESC LIMIT $4`, userID, nullableCursorTime(cursor), nullableCursorID(cursor), limit+1)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to read notifications"})
 		return
@@ -91,7 +99,13 @@ func ListNotificationsHandler(c *gin.Context) {
 		}
 		out = append(out, gin.H{"id": id, "title": title, "message": body, "type": kind, "read": read != nil, "timestamp": created, "event_name": event})
 	}
-	c.JSON(200, out)
+	next := ""
+	if len(out) > limit {
+		last := out[limit-1]
+		next = encodeTimelineCursor(last["timestamp"].(time.Time), last["id"].(string))
+		out = out[:limit]
+	}
+	c.JSON(200, gin.H{"items": out, "next_cursor": next})
 }
 func MarkNotificationsReadHandler(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
@@ -245,6 +259,57 @@ func PruneExpiredCollaborationRecords() error {
 		}
 	}
 	return nil
+}
+
+// ListModuleBaselinesHandler exposes immutable baseline metadata in pages. The
+// snapshot body remains intentionally unavailable from a list response.
+func ListModuleBaselinesHandler(c *gin.Context) {
+	cursor, ok := decodeTimelineCursor(c)
+	if !ok {
+		return
+	}
+	limit, ok := timelineLimit(c)
+	if !ok {
+		return
+	}
+	moduleID := c.Param("id")
+	var projectID string
+	if err := db.DB.QueryRow(`SELECT project_id FROM modules WHERE id=$1 AND status='active'`, moduleID).Scan(&projectID); err != nil {
+		c.JSON(404, gin.H{"error": "module not found"})
+		return
+	}
+	if !middleware.AuthorizeProject(c, projectID, middleware.CapabilityView) {
+		return
+	}
+	rows, err := db.DB.Query(`SELECT id,version,status,created_at,published_at FROM module_versions WHERE module_id=$1 AND ($2::timestamp IS NULL OR (created_at,id) < ($2,$3)) ORDER BY created_at DESC,id DESC LIMIT $4`, moduleID, nullableCursorTime(cursor), nullableCursorID(cursor), limit+1)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "failed to list module baselines"})
+		return
+	}
+	defer rows.Close()
+	items := []gin.H{}
+	for rows.Next() {
+		var id, status string
+		var version int
+		var created time.Time
+		var published *time.Time
+		if err := rows.Scan(&id, &version, &status, &created, &published); err != nil {
+			c.JSON(500, gin.H{"error": "failed to parse module baseline"})
+			return
+		}
+		items = append(items, gin.H{"id": id, "version": version, "status": status, "created_at": created, "published_at": published})
+	}
+	if err := rows.Err(); err != nil {
+		c.JSON(500, gin.H{"error": "failed to list module baselines"})
+		return
+	}
+	next := ""
+	if len(items) > limit {
+		last := items[limit-1]
+		next = encodeTimelineCursor(last["created_at"].(time.Time), last["id"].(string))
+		items = items[:limit]
+	}
+	c.JSON(200, gin.H{"items": items, "next_cursor": next})
 }
 
 func PublishModuleBaselineHandler(c *gin.Context) {

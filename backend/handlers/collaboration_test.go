@@ -49,6 +49,24 @@ func TestReplayProjectEventsUsesTenantScopedLastEventID(t *testing.T) {
 	}
 }
 
+func TestTimelineCursorIsOpaqueAndRejectsInvalidValues(t *testing.T) {
+	valid := encodeTimelineCursor(time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC), "act-1")
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = httptest.NewRequest("GET", "/?cursor="+valid+"&limit=2", nil)
+	cursor, ok := decodeTimelineCursor(context)
+	if !ok || cursor.ID != "act-1" {
+		t.Fatalf("valid cursor was not decoded: %#v", cursor)
+	}
+	if limit, ok := timelineLimit(context); !ok || limit != 2 {
+		t.Fatalf("invalid limit result: %d %v", limit, ok)
+	}
+	invalid, _ := gin.CreateTestContext(httptest.NewRecorder())
+	invalid.Request = httptest.NewRequest("GET", "/?cursor=not-a-cursor", nil)
+	if _, ok := decodeTimelineCursor(invalid); ok {
+		t.Fatal("invalid cursor was accepted")
+	}
+}
+
 func TestNotificationDeliveryIsIdempotentAcrossRetries(t *testing.T) {
 	mock := isolatedTenantDB(t)
 	mock.ExpectBegin()

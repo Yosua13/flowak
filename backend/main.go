@@ -97,6 +97,7 @@ func main() {
 		api.GET("/projects/:id/work-items", handlers.ListWorkItemsHandler)
 		api.GET("/projects/:id/events", handlers.ProjectEventsHandler)
 		api.POST("/modules/:id/publish", handlers.PublishModuleBaselineHandler)
+		api.GET("/modules/:id/versions", handlers.ListModuleBaselinesHandler)
 		api.POST("/modules/:id/versions/:version/restore", handlers.RestoreModuleBaselineHandler)
 		api.GET("/notifications", handlers.ListNotificationsHandler)
 		api.POST("/notifications/read", handlers.MarkNotificationsReadHandler)

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"strings"
+	"time"
 
 	"backend/db"
 	"backend/middleware"
@@ -132,6 +133,14 @@ func DeleteAPIRequestHandler(c *gin.Context) {
 	c.Status(204)
 }
 func ListAPIRunsHandler(c *gin.Context) {
+	cursor, ok := decodeTimelineCursor(c)
+	if !ok {
+		return
+	}
+	limit, ok := timelineLimit(c)
+	if !ok {
+		return
+	}
 	projectID, err := contractProjectForRequest(c.Param("id"))
 	if err != nil {
 		contractNotFound(c)
@@ -140,7 +149,7 @@ func ListAPIRunsHandler(c *gin.Context) {
 	if !authorizedContractProject(c, projectID, middleware.CapabilityView) {
 		return
 	}
-	rows, err := db.DB.Query(`SELECT id,status,duration_ms,response_size,request_id,target_host,policy_decision,body_truncated,is_evidence,created_at FROM api_runs WHERE api_request_id=$1 ORDER BY created_at DESC LIMIT 100`, c.Param("id"))
+	rows, err := db.DB.Query(`SELECT id,status,duration_ms,response_size,request_id,target_host,policy_decision,body_truncated,is_evidence,created_at FROM api_runs WHERE api_request_id=$1 AND ($2::timestamp IS NULL OR (created_at,id) < ($2,$3)) ORDER BY created_at DESC,id DESC LIMIT $4`, c.Param("id"), nullableCursorTime(cursor), nullableCursorID(cursor), limit+1)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to list API runs"})
 		return
@@ -158,7 +167,18 @@ func ListAPIRunsHandler(c *gin.Context) {
 		}
 		out = append(out, gin.H{"id": id, "status": status, "duration_ms": duration, "response_size": size, "request_id": requestID, "target_host": host, "policy_decision": decision, "body_truncated": truncated, "is_evidence": evidence, "created_at": created})
 	}
-	c.JSON(200, out)
+	next := ""
+	if len(out) > limit {
+		last := out[limit-1]
+		created, valid := last["created_at"].(time.Time)
+		if !valid {
+			c.JSON(500, gin.H{"error": "failed to parse API run cursor"})
+			return
+		}
+		next = encodeTimelineCursor(created, last["id"].(string))
+		out = out[:limit]
+	}
+	c.JSON(200, gin.H{"items": out, "next_cursor": next})
 }
 func SaveAPIRunEvidenceHandler(c *gin.Context) {
 	var projectID string

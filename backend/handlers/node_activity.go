@@ -14,6 +14,14 @@ import (
 // response intentionally excludes before/after payloads because those may
 // contain fields that are not appropriate to expose in a compact activity feed.
 func ListNodeActivityHandler(c *gin.Context) {
+	cursor, ok := decodeTimelineCursor(c)
+	if !ok {
+		return
+	}
+	limit, ok := timelineLimit(c)
+	if !ok {
+		return
+	}
 	nodeID := c.Param("id")
 	var projectID string
 	if err := db.DB.QueryRow(`SELECT m.project_id FROM workflow_nodes n JOIN modules m ON m.id=n.module_id WHERE n.id=$1 AND n.deleted_at IS NULL`, nodeID).Scan(&projectID); err != nil {
@@ -35,8 +43,9 @@ func ListNodeActivityHandler(c *gin.Context) {
 			JOIN work_items w ON w.id=a.entity_id AND w.deleted_at IS NULL
 			WHERE a.project_id=$2 AND a.entity_type='work_item' AND w.node_id=$1
 		) AS node_activity
-		ORDER BY created_at DESC
-		LIMIT 100`, nodeID, projectID)
+		WHERE ($3::timestamp IS NULL OR (created_at,id) < ($3,$4))
+		ORDER BY created_at DESC,id DESC
+		LIMIT $5`, nodeID, projectID, nullableCursorTime(cursor), nullableCursorID(cursor), limit+1)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list node activity"})
 		return
@@ -62,5 +71,11 @@ func ListNodeActivityHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list node activity"})
 		return
 	}
-	c.JSON(http.StatusOK, activity)
+	next := ""
+	if len(activity) > limit {
+		last := activity[limit-1]
+		next = encodeTimelineCursor(last["created_at"].(time.Time), last["id"].(string))
+		activity = activity[:limit]
+	}
+	c.JSON(http.StatusOK, gin.H{"items": activity, "next_cursor": next})
 }

@@ -9,7 +9,12 @@ export interface NotificationItem {
   title: string;
 }
 
+export interface NotificationPage {
+  items: NotificationItem[];
+  next_cursor: string;
+}
+
 export const notificationsService = {
-  list: () => apiClient.get<NotificationItem[]>('/notifications'),
+  list: () => apiClient.get<NotificationPage>('/notifications'),
   markAllRead: () => apiClient.post('/notifications/read'),
 };
