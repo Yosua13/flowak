@@ -1,0 +1,61 @@
+name: quality-gates
+
+on:
+  pull_request:
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+jobs:
+  backend-unit-integration-security-resilience:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+      - run: go test ./... -count=1
+
+  frontend-contract-accessibility-e2e-performance:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm test -- --reporter=verbose
+      - run: npm run lint
+      - run: npm run build
+      - name: Preserve frontend build evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          if-no-files-found: error
+
+  release-contract-and-documentation:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate versioned OpenAPI and release documentation
+        shell: pwsh
+        run: ./scripts/quality-gate.ps1 -Gate contract
+      - name: Validate security and resilience release assertions
+        shell: pwsh
+        run: ./scripts/quality-gate.ps1 -Gate release
+      - name: Preserve release evidence templates
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-evidence-template
+          path: docs/RELEASE-EVIDENCE.md
