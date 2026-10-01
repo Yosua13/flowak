@@ -884,7 +884,7 @@ export const useStore = create<AppStore>((set, get) => ({
     set({ notifications: [] });
   },
   loadNotifications: async () => {
-    try { set({ notifications: await notificationsService.list() }); }
+    try { set({ notifications: (await notificationsService.list()).items }); }
     catch { /* Notification availability must not block the workspace. */ }
   },
 

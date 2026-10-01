@@ -201,7 +201,7 @@ func TestTenantScopedNotificationAndUserPickerQueries(t *testing.T) {
 		{
 			name: "notifications", method: http.MethodGet, path: "/notifications", handler: ListNotificationsHandler,
 			prepare: func(mock sqlmock.Sqlmock) {
-				mock.ExpectQuery("SELECT id,title,body,type,read_at,created_at,event_name FROM notifications WHERE user_id=\\$1").WithArgs(tenantTestUser).
+				mock.ExpectQuery("SELECT id,title,body,type,read_at,created_at,event_name FROM notifications WHERE user_id=\\$1").WithArgs(tenantTestUser, nil, nil, 51).
 					WillReturnRows(sqlmock.NewRows([]string{"id", "title", "body", "type", "read_at", "created_at", "event_name"}))
 			},
 		},

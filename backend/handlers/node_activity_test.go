@@ -31,7 +31,7 @@ func TestListNodeActivityReturnsOnlyNodeEntries(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"project_id"}).AddRow("project_a"))
 	mock.ExpectQuery("SELECT COALESCE").WithArgs(tenantTestUser, "project_a", tenantTestOrg).
 		WillReturnRows(sqlmock.NewRows([]string{"project_role"}).AddRow("viewer"))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, action, actor_id, created_at FROM (")).WithArgs("node_a", "project_a").
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, action, actor_id, created_at FROM (")).WithArgs("node_a", "project_a", nil, nil, 51).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "action", "actor_id", "created_at"}).
 			AddRow("comment:comment_a", "comment_created", "user_a", time.Date(2026, 9, 25, 10, 0, 0, 0, time.UTC)).
 			AddRow("activity_a", "delivery_fields_changed", nil, time.Date(2026, 9, 25, 9, 0, 0, 0, time.UTC)))

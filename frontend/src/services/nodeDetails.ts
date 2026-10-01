@@ -15,6 +15,8 @@ export interface NodeDetailData {
   activity: NodeActivity[];
 }
 
+interface TimelinePage<T> { items: T[]; next_cursor: string; }
+
 const detailCache = new Map<string, { expiresAt: number; data: NodeDetailData }>();
 const pendingDetails = new Map<string, Promise<NodeDetailData>>();
 const cacheKey = (projectId: ID, nodeId: ID) => `${projectId}:${nodeId}`;
@@ -32,9 +34,9 @@ export const nodeDetailsApi = {
     const request = Promise.all([
       workItemsApi.list(projectId, `node_id=${encodedNodeID}`),
       apiClient.get<NodeComment[]>(`/nodes/${encodedNodeID}/comments`),
-      apiClient.get<NodeActivity[]>(`/nodes/${encodedNodeID}/activity`),
+      apiClient.get<TimelinePage<NodeActivity>>(`/nodes/${encodedNodeID}/activity`),
     ]).then(([items, comments, activity]) => {
-      const data = { items, comments, activity };
+      const data = { items, comments, activity: activity.items };
       detailCache.set(key, { data, expiresAt: Date.now() + cacheWindowMs });
       return data;
     }).finally(() => pendingDetails.delete(key));

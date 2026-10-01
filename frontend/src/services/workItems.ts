@@ -51,8 +51,11 @@ export const workItemsApi = {
   comments(key: string) {
     return apiClient.get<Array<{ id: ID; parent_id?: ID; author_id: ID; body: string; resolved_at?: string; created_at: string; updated_at: string }>>(`/work-items/${key}/comments`);
   },
-  activity(key: string) {
-    return apiClient.get<WorkItemActivity[]>(`/work-items/${encodeURIComponent(key)}/activity`);
+  activity(key: string, cursor = '') {
+    const params = new URLSearchParams();
+    if (cursor) params.set('cursor', cursor);
+    const suffix = params.size ? `?${params}` : '';
+    return apiClient.get<{ items: WorkItemActivity[]; next_cursor: string }>(`/work-items/${encodeURIComponent(key)}/activity${suffix}`);
   },
   comment(key: string, body: string) {
     return apiClient.post<{ id: ID; body: string }>(`/work-items/${key}/comments`, { body });
