@@ -14,6 +14,7 @@ import { projectsService } from '../services/projects';
 import { membersService } from '../services/members';
 import { notificationsService, type NotificationItem } from '../services/notifications';
 import { persistenceAdapter } from '../infra/persistence';
+import { sessionLifecycle } from '../services/sessionLifecycle';
 
 export type AppView = 'canvas' | 'status' | 'doc' | 'calendar' | 'analytics' | 'kanban' | 'team';
 export type AppScreen = 'login' | 'register' | 'dashboard' | 'workspace';
@@ -217,13 +218,11 @@ export const useStore = create<AppStore>((set, get) => ({
 
   initializeStore: async () => {
     document.documentElement.classList.add('dark');
-    const storedUser = localStorage.getItem('flowak_user');
-
-    if (storedUser) {
+    if (sessionLifecycle.hasRefreshHint()) {
       try {
         const session = await authService.refresh();
         const parsedUser = session.user;
-        apiClient.setToken(session.token);
+        sessionLifecycle.establish(session.token, session.user);
         set({
           token: session.token,
           currentUser: parsedUser,
@@ -261,8 +260,7 @@ export const useStore = create<AppStore>((set, get) => ({
     try {
       const data = await authService.login(email, password);
 
-      apiClient.setToken(data.token);
-      localStorage.setItem('flowak_user', JSON.stringify(data.user));
+      sessionLifecycle.establish(data.token, data.user);
 
       set({
         token: data.token,
@@ -299,8 +297,7 @@ export const useStore = create<AppStore>((set, get) => ({
 
   logoutUser: () => {
     void authService.logout();
-    apiClient.setToken(null);
-    localStorage.removeItem('flowak_user');
+    sessionLifecycle.clear();
 
     set({
       token: null,
