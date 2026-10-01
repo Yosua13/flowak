@@ -27,6 +27,7 @@ if ($Gate -eq 'contract') {
 foreach ($artifact in 'docs/RUNBOOK.md', 'docs/RELEASE-CHECKLIST.md', 'docs/ARCHITECTURE-ERD.md', 'docs/MIGRATION-REHEARSAL.md', 'docs/RELEASE-EVIDENCE.md') { [void](Require-File $artifact) }
 $trackedSQLite = & git -C $root ls-files --error-unmatch backend/flowak.db 2>$null
 if ($LASTEXITCODE -eq 0 -and $trackedSQLite) { throw 'Tracked SQLite runtime artifact found; PostgreSQL must remain the only runtime database.' }
+$global:LASTEXITCODE = 0
 $localSQLite = Get-ChildItem -Path (Join-Path $root 'backend') -Recurse -File -Filter 'flowak.db' -ErrorAction SilentlyContinue
 if ($localSQLite) { Write-Warning 'Ignored local SQLite artifact found. It is not part of this release branch and must not be used as a runtime database.' }
 Write-Host 'Release documents, PostgreSQL-only runtime assertion, and evidence template are present.'
