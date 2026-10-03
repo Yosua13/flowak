@@ -24,7 +24,7 @@ if ($Gate -eq 'contract') {
   exit 0
 }
 
-foreach ($artifact in 'docs/RUNBOOK.md', 'docs/RELEASE-CHECKLIST.md', 'docs/ARCHITECTURE-ERD.md', 'docs/MIGRATION-REHEARSAL.md', 'docs/RELEASE-EVIDENCE.md') { [void](Require-File $artifact) }
+foreach ($artifact in 'docs/RUNBOOK.md', 'docs/RELEASE-CHECKLIST.md', 'docs/ARCHITECTURE-ERD.md', 'docs/MIGRATION-REHEARSAL.md', 'docs/RELEASE-EVIDENCE.md', 'docs/RELEASE-EVIDENCE-2026-10-03.md') { [void](Require-File $artifact) }
 $trackedSQLite = & git -C $root ls-files --error-unmatch backend/flowak.db 2>$null
 if ($LASTEXITCODE -eq 0 -and $trackedSQLite) { throw 'Tracked SQLite runtime artifact found; PostgreSQL must remain the only runtime database.' }
 $global:LASTEXITCODE = 0

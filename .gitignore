@@ -52,3 +52,6 @@ yarn-error.log*
 *.so
 *.dylib
 backend/flowak_backend
+
+# Local release rehearsal artifacts (database dumps and generated reports)
+tmp/
