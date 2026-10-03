@@ -1,6 +1,6 @@
 # Flowak architecture and ERD
 
-The Go/Gin runtime is the only production API and serves the built Vite client. PostgreSQL is the only runtime database. Normalized graph records are authoritative; `modules.nodes` and `modules.edges` remain a temporary compatibility snapshot and must never be read as the source of truth.
+The Go/Gin runtime is the only production API and serves the built Vite client. PostgreSQL is the only runtime database. Normalized graph records are authoritative. Compatibility writes to `modules.nodes` and `modules.edges` are disabled by default; the legacy read fallback remains for one release and must never supersede normalized data.
 
 ```mermaid
 erDiagram

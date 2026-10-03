@@ -21,6 +21,8 @@ Migrations are forward-only and idempotent. The runtime applies them at startup.
 
 `modules.nodes`/`edges` are compatibility snapshots only. Use `backend/cmd/graph-reconcile` to produce a read-only mismatch report before choosing a rollback or repair plan.
 
+Compatibility writes are disabled by default after the two successful 2026-10-03 shadow reconciliation passes. `GRAPH_COMPATIBILITY_WRITE_ENABLED=true` is a temporary rollback control only. Keep the legacy read fallback for one release; remove the columns only through a later major forward migration.
+
 ## Secret rotation
 
 Rotate database credentials and runner environment variables in the secret store, deploy with the new values, verify health and login, then revoke the previous values. Rotating `JWT_SECRET` invalidates existing access sessions; schedule it as an incident or maintenance operation and communicate a re-login requirement. Never include a secret value in tickets, event payloads, exports, or incident logs.
