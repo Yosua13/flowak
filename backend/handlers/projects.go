@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"strings"
 
 	"backend/db"
@@ -12,6 +13,11 @@ import (
 	"backend/models"
 	"github.com/gin-gonic/gin"
 )
+
+func graphCompatibilityWriteEnabled() bool {
+	value := strings.TrimSpace(strings.ToLower(os.Getenv("GRAPH_COMPATIBILITY_WRITE_ENABLED")))
+	return value == "1" || value == "true" || value == "yes"
+}
 
 // hasProjectAccess checks if a user is the owner or a member of a project
 func hasProjectAccess(userID, projectID string) (bool, error) {
@@ -402,11 +408,11 @@ func CreateProjectModuleHandler(c *gin.Context) {
 	nodesJSON := "[]"
 	edgesJSON := "[]"
 
-	if req.Nodes != nil {
+	if graphCompatibilityWriteEnabled() && req.Nodes != nil {
 		nb, _ := json.Marshal(req.Nodes)
 		nodesJSON = string(nb)
 	}
-	if req.Edges != nil {
+	if graphCompatibilityWriteEnabled() && req.Edges != nil {
 		eb, _ := json.Marshal(req.Edges)
 		edgesJSON = string(eb)
 	}
@@ -547,12 +553,17 @@ func UpdateModuleHandler(c *gin.Context) {
 			return
 		}
 
-		// Deprecated compatibility snapshot: normalized workflow tables remain authoritative.
-		nodesJSON, _ := json.Marshal(req.Nodes)
-		edgesJSON, _ := json.Marshal(req.Edges)
-		_, err = tx.Exec("UPDATE modules SET nodes = $1, edges = $2, version = version + 1, updated_by = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $4", string(nodesJSON), string(edgesJSON), userID, moduleID)
+		// Rollback-only compatibility write. Normalized workflow tables are authoritative,
+		// and this flag defaults off after two successful shadow reconciliation passes.
+		if graphCompatibilityWriteEnabled() {
+			nodesJSON, _ := json.Marshal(req.Nodes)
+			edgesJSON, _ := json.Marshal(req.Edges)
+			_, err = tx.Exec("UPDATE modules SET nodes = $1, edges = $2, version = version + 1, updated_by = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $4", string(nodesJSON), string(edgesJSON), userID, moduleID)
+		} else {
+			_, err = tx.Exec("UPDATE modules SET version = version + 1, updated_by = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2", userID, moduleID)
+		}
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update graph compatibility snapshot"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update module graph metadata"})
 			return
 		}
 	}
