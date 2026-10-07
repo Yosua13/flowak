@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Node, Status, HttpMethod, BackendFacet } from '../../domain/types';
 import { useStore } from '../../store/useStore';
 import { generateCurl } from '../../services/curl';
+import { apiContracts, type APIEnvironment, type APIRun } from '../../services/apiContracts';
 import { Copy, Play, Check, AlertCircle, RefreshCw } from 'lucide-react';
 import TextRows from './TextRows';
 
@@ -15,7 +16,7 @@ interface BackendTabProps {
 }
 
 export default function BackendTab({ node }: BackendTabProps) {
-  const { updateRole, teamMembers, addNotification } = useStore();
+  const { updateRole, teamMembers, addNotification, activeProjectId } = useStore();
   const be: BackendFacet = node.roles?.backend || {
     assignee: '',
     status: 'planned',
@@ -32,7 +33,11 @@ export default function BackendTab({ node }: BackendTabProps) {
 
   const [copied, setCopied] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ code: string; body: string } | null>(null);
+  const [testResult, setTestResult] = useState<APIRun | null>(null);
+  const [environments, setEnvironments] = useState<APIEnvironment[]>([]);
+  const [environmentId, setEnvironmentId] = useState('');
+  const [requestId, setRequestId] = useState('');
+  useEffect(() => { if (!activeProjectId) return; void Promise.all([apiContracts.environments(activeProjectId), apiContracts.requests(node.id)]).then(([envs, requests]) => { setEnvironments(envs); setEnvironmentId(envs.find((env) => env.is_default)?.id || envs[0]?.id || ''); setRequestId(requests[0]?.id || ''); }).catch(() => undefined); }, [activeProjectId, node.id]);
 
 
   const handleFieldChange = (key: string, val: string) => {
@@ -47,10 +52,7 @@ export default function BackendTab({ node }: BackendTabProps) {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleTestEndpoint = () => {
-    setTestResult(null);
-    addNotification('Runner aman diperlukan', 'Request hanya dapat dijalankan oleh server-side API runner setelah contract dan environment disimpan.', 'info');
-  };
+  const handleTestEndpoint = async () => { if (!requestId || !environmentId) { addNotification('Contract belum siap', 'Simpan contract dan pilih environment yang disetujui sebelum mengirim.', 'warning'); return; } setTesting(true); setTestResult(null); try { setTestResult(await apiContracts.run(requestId,{ environment_id:environmentId, method:be.method, relative_path:be.endpoint, body:be.request })); } catch (error) { addNotification('Runner menolak request', error instanceof Error ? error.message : 'Request tidak dapat dijalankan.', 'warning'); } finally { setTesting(false); } };
 
 
   const beMembers = teamMembers.filter((m) => m.role === 'backend' || m.role === 'pm');
@@ -131,6 +133,7 @@ export default function BackendTab({ node }: BackendTabProps) {
         </div>
 
         {/* API Endpoint Input row with Method selector */}
+        <div className="space-y-1"><label className="block text-[9px] font-bold text-gray-400 font-mono uppercase tracking-wider">Environment runner</label><select value={environmentId} onChange={(event)=>setEnvironmentId(event.target.value)} className="w-full text-xs border border-white/5 rounded-xl px-3 py-2 bg-[#1A1A1D] text-white"><option value="">Pilih environment</option>{environments.map((environment)=><option key={environment.id} value={environment.id}>{environment.name} · {environment.approved_base_url}</option>)}</select></div>
         <div className="space-y-1">
           <label className="block text-[9px] font-bold text-gray-400 font-mono uppercase tracking-wider">
             Definisi Endpoint
@@ -283,10 +286,10 @@ export default function BackendTab({ node }: BackendTabProps) {
               <div className="flex items-center space-x-1.5 text-gray-400 border-b border-white/5 pb-1.5 mb-2">
                 <AlertCircle className="w-3.5 h-3.5 text-emerald-400" />
                 <span>HTTP/{be.method || 'GET'} Status:</span>
-                <span className="font-bold text-emerald-400 pr-2">{testResult.code} OK</span>
+                <span className="font-bold text-emerald-400 pr-2">{testResult.status_code || '—'} · {testResult.duration_ms || 0}ms · {testResult.response_size || 0} B</span>
               </div>
               <div className="text-gray-300 max-h-36 overflow-y-auto leading-normal whitespace-pre-wrap font-mono">
-                {testResult.body}
+                {testResult.body || 'Tidak ada body response.'}{testResult.body_truncated && '\n[Response dipotong]'}{`\nRequest ID: ${testResult.request_id}`}
               </div>
             </div>
           )}

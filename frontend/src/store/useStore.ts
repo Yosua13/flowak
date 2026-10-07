@@ -9,11 +9,12 @@ import { canAddEdge, addEdge as domainAddEdge, uid } from '../domain/invariants'
 import { TeamMember } from '../config/seedData';
 import { apiClient } from '../services/apiClient';
 import { saveGraph, SaveStatus } from '../services/graphMutation';
-import { authService } from '../services/authService';
 import { projectsService } from '../services/projects';
-import { membersService } from '../services/members';
-import { notificationsService, type NotificationItem } from '../services/notifications';
+import type { NotificationItem } from '../services/notifications';
 import { persistenceAdapter } from '../infra/persistence';
+import { createAuthActions } from './authActions';
+import { createCollaborationActions } from './collaborationActions';
+import { createProjectActions } from './projectActions';
 
 export type AppView = 'canvas' | 'status' | 'doc' | 'calendar' | 'analytics' | 'kanban' | 'team';
 export type AppScreen = 'login' | 'register' | 'dashboard' | 'workspace';
@@ -29,7 +30,7 @@ export interface ProjectItem {
   created_at: string;
 }
 
-interface AppStore {
+export interface AppStore {
   // Authentication State
   token: string | null;
   currentUser: {
@@ -215,33 +216,7 @@ export const useStore = create<AppStore>((set, get) => ({
     set({ screen });
   },
 
-  initializeStore: async () => {
-    document.documentElement.classList.add('dark');
-    const storedUser = localStorage.getItem('flowak_user');
-
-    if (storedUser) {
-      try {
-        const session = await authService.refresh();
-        const parsedUser = session.user;
-        apiClient.setToken(session.token);
-        set({
-          token: session.token,
-          currentUser: parsedUser,
-          organizationRole: session.organization_role,
-          isAuthenticated: true,
-          screen: 'dashboard'
-        });
-        await get().loadProjects();
-        await get().loadArchivedProjects();
-        await get().loadTeamMembers();
-        await get().loadNotifications();
-      } catch {
-        set({ screen: 'login' });
-      }
-    } else {
-      set({ screen: 'login' });
-    }
-  },
+  ...createAuthActions(set, get),
 
   toggleDarkMode: () => {
     set((state) => {
@@ -256,140 +231,7 @@ export const useStore = create<AppStore>((set, get) => ({
     });
   },
 
-  // Authentication Actions
-  loginUser: async (email, password) => {
-    try {
-      const data = await authService.login(email, password);
-
-      apiClient.setToken(data.token);
-      localStorage.setItem('flowak_user', JSON.stringify(data.user));
-
-      set({
-        token: data.token,
-        currentUser: data.user,
-        organizationRole: data.organization_role,
-        isAuthenticated: true,
-        screen: 'dashboard'
-      });
-
-      get().addNotification('Login Sukses', `Selamat datang kembali, ${data.user.name}!`, 'success');
-      await get().loadProjects();
-      await get().loadArchivedProjects();
-      await get().loadTeamMembers();
-      await get().loadNotifications();
-      return true;
-    } catch (err) {
-      get().addNotification('Gagal Masuk', 'Koneksi ke server terputus.', 'warning');
-      return false;
-    }
-  },
-
-  registerUser: async (name, email, password, role) => {
-    try {
-      await authService.register(name, email, password, role);
-
-      get().addNotification('Registrasi Sukses', 'Akun berhasil dibuat. Silakan masuk.', 'success');
-      set({ screen: 'login' });
-      return true;
-    } catch (err) {
-      get().addNotification('Gagal Mendaftar', 'Koneksi ke server terputus.', 'warning');
-      return false;
-    }
-  },
-
-  logoutUser: () => {
-    void authService.logout();
-    apiClient.setToken(null);
-    localStorage.removeItem('flowak_user');
-
-    set({
-      token: null,
-      currentUser: null,
-      isAuthenticated: false,
-      organizationRole: null,
-      screen: 'login',
-      projects: [],
-      archivedProjects: [],
-      activeProjectId: null,
-      modules: [],
-      activeId: null,
-      selectedNodeId: null,
-      teamMembers: [],
-      projectMembers: [],
-      dashboardStats: null
-    });
-  },
-
-  // Project Management Actions
-  loadProjects: async () => {
-    const { token } = get();
-    if (!token) return;
-
-    try {
-      const data = await projectsService.list();
-      if (data) {
-        set({ projects: data });
-        // Fetch dashboard stats as well
-        get().loadDashboardStats();
-      }
-    } catch (err) {
-      console.error('Failed to load projects:', err);
-    }
-  },
-
-  loadArchivedProjects: async () => {
-    const { token } = get();
-    if (!token) return;
-
-    try {
-      set({ archivedProjects: await projectsService.list('archived') });
-    } catch (err) {
-      console.error('Failed to load archived projects:', err);
-    }
-  },
-
-  createProject: async (name, description) => {
-    const { token } = get();
-    if (!token) return false;
-
-    try {
-      await projectsService.create(name, description);
-      get().addNotification('Proyek Dibuat', `Proyek "${name}" berhasil ditambahkan.`, 'success');
-      await get().loadProjects();
-      return true;
-    } catch (err) {
-      get().addNotification('Gagal Membuat Proyek', 'Koneksi ke server terputus.', 'warning');
-      return false;
-    }
-  },
-
-  deleteProject: async (id) => {
-    const { token } = get();
-    if (!token) return;
-
-    try {
-      await projectsService.archive(id);
-		get().addNotification('Proyek Diarsipkan', 'Proyek dapat dipulihkan dari daftar arsip.', 'warning');
-        await get().loadProjects();
-		await get().loadArchivedProjects();
-    } catch (err) {
-      console.error('Failed to delete project:', err);
-    }
-  },
-
-  restoreProject: async (id) => {
-    const { token } = get();
-    if (!token) return;
-
-    try {
-      await projectsService.restore(id);
-      get().addNotification('Proyek Dipulihkan', 'Proyek kembali tersedia di workspace.', 'success');
-      await get().loadProjects();
-      await get().loadArchivedProjects();
-    } catch (err) {
-      get().addNotification('Gagal Memulihkan Proyek', 'Koneksi ke server terputus.', 'warning');
-    }
-  },
+  ...createProjectActions(set, get),
 
   selectProject: async (projectId) => {
     const { token } = get();
@@ -432,62 +274,6 @@ export const useStore = create<AppStore>((set, get) => ({
       }
     } catch (err) {
       console.error('Failed to select project:', err);
-    }
-  },
-
-  // Module Management Actions
-  addModule: async (name, description) => {
-    const { token, activeProjectId } = get();
-    if (!token || !activeProjectId) return null;
-
-    try {
-      const data = await projectsService.createModule(activeProjectId, { name, description });
-      get().addNotification('Modul Ditambahkan', `Modul "${name}" berhasil dibuat.`, 'success');
-      const parsedModules = await projectsService.listModules(activeProjectId);
-      set({ modules: parsedModules, activeId: data.module_id, selectedNodeId: null });
-      return data.module_id;
-    } catch (err) {
-      console.error('Failed to add module:', err);
-      return null;
-    }
-  },
-
-  renameModule: async (id, name, description) => {
-    const { token, activeProjectId } = get();
-    if (!token || !activeProjectId) return;
-
-    try {
-      await projectsService.renameModule(id, name, description);
-      set((state) => {
-        const updated = state.modules.map((m) =>
-          m.id === id ? { ...m, name, description: description !== undefined ? description : m.description } : m
-        );
-        return { modules: updated };
-      });
-    } catch (err) {
-      console.error('Failed to rename module:', err);
-    }
-  },
-
-  deleteModule: async (id) => {
-    const { token, activeProjectId } = get();
-    if (!token || !activeProjectId) return;
-
-    try {
-      await projectsService.deleteModule(id);
-      get().addNotification('Modul Dihapus', 'Modul berhasil dihapus secara permanen.', 'warning');
-        
-        set((state) => {
-          const updated = state.modules.filter((m) => m.id !== id);
-          const nextActiveId = updated.length > 0 ? updated[0].id : null;
-          return {
-            modules: updated,
-            activeId: nextActiveId,
-            selectedNodeId: null
-          };
-        });
-    } catch (err) {
-      console.error('Failed to delete module:', err);
     }
   },
 
@@ -869,12 +655,7 @@ export const useStore = create<AppStore>((set, get) => ({
     }
   },
 
-  markAllNotificationsRead: () => {
-    set((state) => ({
-      notifications: state.notifications.map((n) => ({ ...n, read: true })),
-    }));
-    void notificationsService.markAllRead();
-  },
+  ...createCollaborationActions(set, get),
 
   setSelectedNotif: (notif) => {
     set({ selectedNotif: notif });
@@ -882,10 +663,6 @@ export const useStore = create<AppStore>((set, get) => ({
 
   clearNotifications: () => {
     set({ notifications: [] });
-  },
-  loadNotifications: async () => {
-    try { set({ notifications: await notificationsService.list() }); }
-    catch { /* Notification availability must not block the workspace. */ }
   },
 
   // AI & Extra modularity actions
@@ -937,100 +714,4 @@ export const useStore = create<AppStore>((set, get) => ({
     }
   },
 
-  // Team Management Actions connected to Backend DB API
-  loadTeamMembers: async () => {
-    const { token } = get();
-    if (!token) return;
-
-    try {
-      set({ teamMembers: await membersService.listTeam() });
-    } catch (err) {
-      console.error('Failed to load team members:', err);
-    }
-  },
-
-  addTeamMember: async (name, email, role) => {
-    const { token } = get();
-    if (!token) return;
-
-    try {
-      const data = await membersService.createTeamMember(name, email, role);
-        const tempPassword = data.temporary_password ? ` Password sementara: ${data.temporary_password}` : '';
-        get().addNotification('Anggota Tim Ditambahkan', `${name} dimasukkan ke daftar kontributor.${tempPassword}`, 'success');
-        await get().loadTeamMembers();
-    } catch (err) {
-      get().addNotification('Gagal Menambahkan Anggota', 'Koneksi ke server terputus.', 'warning');
-    }
-  },
-
-  deleteTeamMember: async (id) => {
-    const { token, currentUser } = get();
-    if (!token) return;
-
-    if (currentUser && currentUser.id === id) {
-      get().addNotification('Tindakan Dicegah', 'Anda tidak dapat menghapus akun Anda sendiri.', 'warning');
-      return;
-    }
-
-    try {
-      await membersService.deleteTeamMember(id);
-        get().addNotification('Anggota Tim Dihentikan', 'Kontributor telah dihapus.', 'warning');
-        await get().loadTeamMembers();
-    } catch (err) {
-      get().addNotification('Gagal Mengeluarkan Anggota', 'Koneksi ke server terputus.', 'warning');
-    }
-  },
-
-  loadProjectMembers: async () => {
-    const { token, activeProjectId } = get();
-    if (!token || !activeProjectId) return;
-
-    try {
-      set({ projectMembers: await membersService.listProjectMembers(activeProjectId) });
-    } catch (err) {
-      console.error('Failed to load project members:', err);
-    }
-  },
-
-  addProjectMember: async (userId) => {
-    const { token, activeProjectId } = get();
-    if (!token || !activeProjectId) return false;
-
-    try {
-      await membersService.addProjectMember(activeProjectId, userId);
-        get().addNotification('Anggota Ditambahkan', 'Anggota tim berhasil ditambahkan ke proyek.', 'success');
-        await get().loadProjectMembers();
-        return true;
-    } catch (err) {
-      get().addNotification('Gagal Menambahkan Anggota', 'Koneksi ke server terputus.', 'warning');
-      return false;
-    }
-  },
-
-  deleteProjectMember: async (userId) => {
-    const { token, activeProjectId } = get();
-    if (!token || !activeProjectId) return false;
-
-    try {
-      await membersService.deleteProjectMember(activeProjectId, userId);
-        get().addNotification('Anggota Dihapus', 'Anggota tim telah dihapus dari proyek.', 'warning');
-        await get().loadProjectMembers();
-        return true;
-    } catch (err) {
-      get().addNotification('Gagal Menghapus Anggota', 'Koneksi ke server terputus.', 'warning');
-      return false;
-    }
-  },
-
-  loadDashboardStats: async () => {
-    const { token } = get();
-    if (!token) return;
-
-    try {
-      const data = await membersService.dashboard();
-      set({ dashboardStats: { myTasksCount: data.my_tasks_count, completionRate: data.completion_rate } });
-    } catch (err) {
-      console.error('Failed to load dashboard stats:', err);
-    }
-  }
 }));
