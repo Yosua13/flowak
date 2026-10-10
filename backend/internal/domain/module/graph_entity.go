@@ -56,3 +56,28 @@ type ModuleBaseline struct {
 	DiffSummary   string    `json:"diff_summary"`
 	PublishedAt   time.Time `json:"published_at"`
 }
+
+// GraphReconciliationReport compares legacy JSON snapshots with active normalized graph rows.
+type GraphReconciliationReport struct {
+	ModuleID  string                    `json:"module_id"`
+	ProjectID string                    `json:"project_id"`
+	Matches   bool                      `json:"matches"`
+	Nodes     GraphEntityReconciliation `json:"nodes"`
+	Edges     GraphEntityReconciliation `json:"edges"`
+}
+
+// GraphEntityReconciliation contains deterministic differences for one graph entity type.
+type GraphEntityReconciliation struct {
+	SnapshotCount         int                    `json:"snapshot_count"`
+	NormalizedCount       int                    `json:"normalized_count"`
+	MissingFromSnapshot   []string               `json:"missing_from_snapshot"`
+	MissingFromNormalized []string               `json:"missing_from_normalized"`
+	Changed               []GraphFieldDifference `json:"changed"`
+	SnapshotIssues        []string               `json:"snapshot_issues"`
+}
+
+// GraphFieldDifference lists key graph fields with different values for a shared ID.
+type GraphFieldDifference struct {
+	ID     string   `json:"id"`
+	Fields []string `json:"fields"`
+}
