@@ -2,17 +2,18 @@ package routes
 
 import (
 	"backend/handlers"
+	workitemHandler "backend/internal/transport/http/handler/workitem"
 	"github.com/gin-gonic/gin"
 )
 
 // RegisterWorkItemRoutes registers work items, activity, comments, artifacts, notifications, and API contract runner routes.
 func RegisterWorkItemRoutes(r *gin.RouterGroup) {
 	// Work items CRUD & workflow
-	r.GET("/projects/:id/work-items", handlers.ListWorkItemsHandler)
-	r.POST("/projects/:id/work-items", handlers.CreateWorkItemHandler)
-	r.GET("/work-items/:key", handlers.GetWorkItemHandler)
-	r.PATCH("/work-items/:key", handlers.UpdateWorkItemHandler)
-	r.POST("/work-items/:key/transitions", handlers.TransitionWorkItemHandler)
+	r.GET("/projects/:id/work-items", workitemHandler.HandleList)
+	r.POST("/projects/:id/work-items", workitemHandler.HandleCreate)
+	r.GET("/work-items/:key", workitemHandler.HandleGetDetail)
+	r.PATCH("/work-items/:key", workitemHandler.HandleUpdate)
+	r.POST("/work-items/:key/transitions", workitemHandler.HandleTransition)
 	r.GET("/work-items/:key/activity", handlers.GetWorkItemActivityHandler)
 
 	// Work item artifacts

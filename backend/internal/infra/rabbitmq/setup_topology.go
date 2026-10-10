@@ -44,7 +44,7 @@ func SetupTopology(ch *amqp.Channel) error {
 		},
 		{
 			queueName:   QueueSSEBroadcast,
-			routingKeys: []string{QueueSSEBroadcast, "events.broadcast.#"},
+			routingKeys: []string{QueueSSEBroadcast, "events.broadcast.#", "workitem.#", "workitem.transitioned"},
 		},
 		{
 			queueName:   QueueAuditLogs,
