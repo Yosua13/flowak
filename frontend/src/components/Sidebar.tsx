@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { useStore } from '../store/useStore';
 import { Folder, Plus, Trash2, Users, LayoutDashboard, ChevronLeft, ChevronRight, Moon, Sun, Map, Upload } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { dialog } from '../services/dialog';
 
 export default function Sidebar() {
   const {
@@ -58,9 +59,17 @@ export default function Sidebar() {
     e.target.value = '';
   };
 
-  const handleDeleteClick = (id: string, name: string, e: React.MouseEvent) => {
+  const handleDeleteClick = async (id: string, name: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const confirmed = window.confirm(`Apakah Anda yakin ingin menghapus modul "${name}" secara permanen beserta seluruh langkah kegiatannya?`);
+    const confirmed = await dialog.confirm({
+      title: 'Hapus Modul',
+      subtitle: 'Tindakan ini tidak dapat dibatalkan',
+      message: `Apakah Anda yakin ingin menghapus modul "${name}" secara permanen beserta seluruh langkah kegiatannya?`,
+      confirmLabel: 'Hapus Modul',
+      cancelLabel: 'Batal',
+      tone: 'danger',
+      icon: 'trash',
+    });
     if (confirmed) {
       deleteModule(id);
     }

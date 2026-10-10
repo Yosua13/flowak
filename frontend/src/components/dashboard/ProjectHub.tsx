@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useStore } from '../../store/useStore';
 import { Plus, LogOut, Folder, Archive, RotateCcw, LayoutGrid, Calendar, Layers, Activity, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { dialog } from '../../services/dialog';
 
 export default function ProjectHub() {
   const {
@@ -43,9 +44,17 @@ export default function ProjectHub() {
     }
   };
 
-  const handleDelete = (id: string, name: string, e: React.MouseEvent) => {
+  const handleDelete = async (id: string, name: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const confirmed = window.confirm(`Arsipkan proyek "${name}"? Data tetap tersimpan dan dapat dipulihkan.`);
+    const confirmed = await dialog.confirm({
+      title: 'Arsipkan Proyek',
+      subtitle: 'Proyek akan dipindahkan ke tab Arsip',
+      message: `Arsipkan proyek "${name}"? Seluruh data modul dan alur kerja tetap tersimpan aman dan dapat dipulihkan kapan saja.`,
+      confirmLabel: 'Arsipkan Proyek',
+      cancelLabel: 'Batal',
+      tone: 'warning',
+      icon: 'archive',
+    });
     if (confirmed) {
       deleteProject(id);
     }

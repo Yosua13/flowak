@@ -24,6 +24,7 @@ import ProjectHub from './dashboard/ProjectHub';
 import { Loader2, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { subscribeProjectEvents } from '../services/projectEvents';
+import GlobalDialog from './common/GlobalDialog';
 
 export default function AppShell() {
   const { screen, view, activeProjectId, activeId, selectedNodeId, selectedWorkItemKey, initializeStore, selectProject, selectModule, selectNode, selectWorkItem, setView, selectedNotif, setSelectedNotif } = useStore();
@@ -273,6 +274,7 @@ export default function AppShell() {
         )}
       </AnimatePresence>
 
+      <GlobalDialog />
     </div>
   );
 }

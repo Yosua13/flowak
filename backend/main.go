@@ -108,7 +108,7 @@ func main() {
 		api.DELETE("/environments/:id", handlers.DeleteEnvironmentHandler)
 		api.GET("/environments/:id/variables", handlers.ListEnvironmentVariablesHandler)
 		api.POST("/environments/:id/variables", handlers.UpsertEnvironmentVariableHandler)
-		api.DELETE("/environments/:environmentId/variables/:variableId", handlers.DeleteEnvironmentVariableHandler)
+		api.DELETE("/environments/:id/variables/:variableId", handlers.DeleteEnvironmentVariableHandler)
 		api.GET("/nodes/:id/api-requests", handlers.ListAPIRequestsHandler)
 		api.POST("/nodes/:id/api-requests", handlers.CreateAPIRequestHandler)
 		api.PATCH("/api-requests/:id", handlers.UpdateAPIRequestHandler)

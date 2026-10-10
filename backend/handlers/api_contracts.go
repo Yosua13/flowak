@@ -251,7 +251,11 @@ func UpsertEnvironmentVariableHandler(c *gin.Context) {
 	c.JSON(201, gin.H{"variable_key": strings.TrimSpace(input.Key), "is_secret": input.Secret})
 }
 func DeleteEnvironmentVariableHandler(c *gin.Context) {
-	projectID, err := contractProjectForEnvironment(c.Param("environmentId"))
+	envID := c.Param("id")
+	if envID == "" {
+		envID = c.Param("environmentId")
+	}
+	projectID, err := contractProjectForEnvironment(envID)
 	if err != nil {
 		contractNotFound(c)
 		return
@@ -259,7 +263,7 @@ func DeleteEnvironmentVariableHandler(c *gin.Context) {
 	if !authorizedContractProject(c, projectID, middleware.CapabilityManage) {
 		return
 	}
-	_, err = db.DB.Exec(`DELETE FROM environment_variables WHERE id=$1 AND environment_id=$2`, c.Param("variableId"), c.Param("environmentId"))
+	_, err = db.DB.Exec(`DELETE FROM environment_variables WHERE id=$1 AND environment_id=$2`, c.Param("variableId"), envID)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to delete variable"})
 		return
