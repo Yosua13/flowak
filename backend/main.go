@@ -10,6 +10,7 @@ import (
 	"backend/config"
 	"backend/db"
 	"backend/handlers"
+	"backend/internal/transport/http/routes"
 	"backend/middleware"
 
 	"github.com/gin-gonic/gin"
@@ -63,88 +64,17 @@ func main() {
 	// Global Middleware
 	r.Use(CorsMiddleware())
 
-	// Public routes
-	r.POST("/api/auth/register", handlers.RegisterHandler)
-	r.POST("/api/auth/login", handlers.LoginHandler)
-	r.POST("/api/auth/refresh", handlers.RefreshHandler)
-	r.POST("/api/auth/logout", handlers.LogoutHandler)
-	r.POST("/api/auth/password-reset/request", handlers.PasswordResetRequestHandler)
-	r.POST("/api/invitations/accept", handlers.AcceptInvitationHandler)
+	// Public routes group
+	public := r.Group("/api")
+	routes.RegisterAuthRoutes(public)
 
 	// Protected routes group
 	api := r.Group("/api")
 	api.Use(middleware.AuthMiddleware())
-	{
-		// Project CRUD & sub-routes
-		api.GET("/projects", handlers.GetProjectsHandler)
-		api.POST("/projects", handlers.CreateProjectHandler)
-		api.GET("/projects/:id", handlers.GetProjectDetailHandler)
-		api.DELETE("/projects/:id", handlers.DeleteProjectHandler)
-		api.POST("/projects/:id/restore", handlers.RestoreProjectHandler)
-
-		// Project Members
-		api.GET("/projects/:id/members", handlers.GetProjectMembersHandler)
-		api.POST("/projects/:id/members", handlers.AddProjectMemberHandler)
-		api.DELETE("/projects/:id/members/:userId", handlers.RemoveProjectMemberHandler)
-
-		// Module CRUD
-		api.GET("/projects/:id/modules", handlers.GetProjectModulesHandler)
-		api.POST("/projects/:id/modules", handlers.CreateProjectModuleHandler)
-		api.PUT("/modules/:id", handlers.UpdateModuleHandler)
-		api.DELETE("/modules/:id", handlers.DeleteModuleHandler)
-
-		// Work items, comments, and execution history
-		api.GET("/projects/:id/work-items", handlers.ListWorkItemsHandler)
-		api.GET("/projects/:id/events", handlers.ProjectEventsHandler)
-		api.POST("/modules/:id/publish", handlers.PublishModuleBaselineHandler)
-		api.GET("/modules/:id/versions", handlers.ListModuleBaselinesHandler)
-		api.POST("/modules/:id/versions/:version/restore", handlers.RestoreModuleBaselineHandler)
-		api.GET("/notifications", handlers.ListNotificationsHandler)
-		api.POST("/notifications/read", handlers.MarkNotificationsReadHandler)
-		api.GET("/projects/:id/derived-view-data", handlers.GetDerivedViewDataHandler)
-		api.GET("/projects/:id/environments", handlers.ListEnvironmentsHandler)
-		api.POST("/projects/:id/environments", handlers.CreateEnvironmentHandler)
-		api.PATCH("/environments/:id", handlers.UpdateEnvironmentHandler)
-		api.DELETE("/environments/:id", handlers.DeleteEnvironmentHandler)
-		api.GET("/environments/:id/variables", handlers.ListEnvironmentVariablesHandler)
-		api.POST("/environments/:id/variables", handlers.UpsertEnvironmentVariableHandler)
-		api.DELETE("/environments/:id/variables/:variableId", handlers.DeleteEnvironmentVariableHandler)
-		api.GET("/nodes/:id/api-requests", handlers.ListAPIRequestsHandler)
-		api.POST("/nodes/:id/api-requests", handlers.CreateAPIRequestHandler)
-		api.PATCH("/api-requests/:id", handlers.UpdateAPIRequestHandler)
-		api.DELETE("/api-requests/:id", handlers.DeleteAPIRequestHandler)
-		api.GET("/api-requests/:id/runs", handlers.ListAPIRunsHandler)
-		api.PATCH("/api-runs/:id/evidence", handlers.SaveAPIRunEvidenceHandler)
-		api.POST("/projects/:id/work-items", handlers.CreateWorkItemHandler)
-		api.GET("/work-items/:key", handlers.GetWorkItemHandler)
-		api.GET("/work-items/:key/activity", handlers.GetWorkItemActivityHandler)
-		api.GET("/work-items/:key/artifacts", handlers.GetWorkItemArtifactsHandler)
-		api.POST("/work-items/:key/artifacts/:kind", handlers.MutateWorkItemArtifactHandler)
-		api.PATCH("/work-items/:key/artifacts/:kind/:artifactId", handlers.MutateWorkItemArtifactHandler)
-		api.DELETE("/work-items/:key/artifacts/:kind/:artifactId", handlers.MutateWorkItemArtifactHandler)
-		api.PATCH("/work-items/:key", handlers.UpdateWorkItemHandler)
-		api.POST("/work-items/:key/transitions", handlers.TransitionWorkItemHandler)
-		api.POST("/work-items/:key/comments", handlers.CreateWorkItemCommentHandler)
-		api.GET("/work-items/:key/comments", handlers.ListWorkItemCommentsHandler)
-		api.GET("/nodes/:id/comments", handlers.ListNodeCommentsHandler)
-		api.POST("/nodes/:id/comments", handlers.CreateNodeCommentHandler)
-		api.GET("/nodes/:id/activity", handlers.ListNodeActivityHandler)
-		api.PATCH("/comments/:id", handlers.UpdateCommentHandler)
-
-		// Server-side only API contract execution; browser never calls targets directly.
-		api.POST("/api-requests/:id/runs", handlers.RunAPIRequestHandler)
-
-		// AI Proxies
-		api.POST("/ai/generate-flow", handlers.AiGenerateFlowHandler)
-		api.POST("/ai/audit-flow", handlers.AiAuditFlowHandler)
-
-		// User / Contributor CRUD
-		api.GET("/users", handlers.GetUsersHandler)
-		api.POST("/users", middleware.RequireRole("pm"), handlers.PostUsersHandler)
-		api.DELETE("/users/:id", middleware.RequireRole("pm"), handlers.DeleteUserHandler)
-		api.GET("/users/dashboard-stats", handlers.UserDashboardStatsHandler)
-		api.POST("/invitations", handlers.CreateInvitationHandler)
-	}
+	routes.RegisterProjectRoutes(api)
+	routes.RegisterModuleRoutes(api)
+	routes.RegisterWorkItemRoutes(api)
+	routes.RegisterAIRoutes(api)
 
 	// Catch-all route to serve compiled static assets from the frontend/dist folder (Production)
 	distDir := "../frontend/dist"
