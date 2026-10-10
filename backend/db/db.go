@@ -122,6 +122,9 @@ func runMigrations() {
 	// Durable event replay, notification idempotency, and retention indexes.
 	runMigrationFromFile(DB, "14_durable_collaboration.sql")
 
+	// AI jobs asynchronous tracking table.
+	runMigrationFromFile(DB, "15_ai_jobs.sql")
+
 	log.Println("Migrations executed successfully.")
 }
 

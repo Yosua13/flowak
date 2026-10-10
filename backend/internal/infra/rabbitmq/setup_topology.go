@@ -8,10 +8,11 @@ import (
 )
 
 const (
-	ExchangeEvents    = "flowak.events"
-	QueueAIJobs       = "flowak.ai.jobs"
-	QueueSSEBroadcast = "flowak.sse.broadcast"
-	QueueAuditLogs    = "flowak.audit.logs"
+	ExchangeEvents     = "flowak.events"
+	QueueAIJobs        = "flowak.ai.jobs"
+	QueueSSEBroadcast  = "flowak.sse.broadcast"
+	QueueAuditLogs     = "flowak.audit.logs"
+	QueueAPIRunnerJobs = "flowak.api_runner.jobs"
 )
 
 // SetupTopology declares the core topic exchange, queues, and routing bindings in the RabbitMQ broker.
@@ -49,6 +50,10 @@ func SetupTopology(ch *amqp.Channel) error {
 		{
 			queueName:   QueueAuditLogs,
 			routingKeys: []string{QueueAuditLogs, "audit.logs.#"},
+		},
+		{
+			queueName:   QueueAPIRunnerJobs,
+			routingKeys: []string{QueueAPIRunnerJobs, "api_runner.jobs.#"},
 		},
 	}
 
