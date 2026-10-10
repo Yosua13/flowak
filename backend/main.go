@@ -15,6 +15,7 @@ import (
 	"backend/internal/infra/rabbitmq/consumer"
 	"backend/internal/infra/rabbitmq/producer"
 	"backend/internal/repository/redis"
+	aiHandler "backend/internal/transport/http/handler/ai"
 	workitemHandler "backend/internal/transport/http/handler/workitem"
 	"backend/internal/transport/http/routes"
 	"backend/middleware"
@@ -77,6 +78,12 @@ func main() {
 			_ = rabbitmq.SetupTopology(ch)
 			pub := producer.NewWorkItemEventPublisher(ch)
 			workitemHandler.SetEventPublisher(pub)
+
+			aiPub := producer.NewAIJobPublisher(ch)
+			aiHandler.SetAIJobPublisher(aiPub)
+
+			apiPub := producer.NewAPIRunnerJobPublisher(ch)
+			handlers.SetAPIRunnerJobPublisher(apiPub)
 
 			go func() {
 				_ = consumer.ConsumeSSEBroadcast(context.Background(), ch, func(projectID string, event []byte) {
