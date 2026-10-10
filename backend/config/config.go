@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -18,6 +19,10 @@ type Config struct {
 	DBUser         string
 	DBPassword     string
 	DBName         string
+	RedisAddr      string
+	RedisPassword  string
+	RedisDB        int
+	RabbitMQURL    string
 }
 
 var ActiveConfig Config
@@ -109,6 +114,25 @@ func InitConfig() {
 		dbName = "flowak"
 	}
 
+	redisAddr := os.Getenv("REDIS_ADDR")
+	if redisAddr == "" {
+		redisAddr = "localhost:6379"
+	}
+
+	redisPassword := os.Getenv("REDIS_PASSWORD")
+
+	redisDB := 0
+	if dbStr := strings.TrimSpace(os.Getenv("REDIS_DB")); dbStr != "" {
+		if val, err := strconv.Atoi(dbStr); err == nil {
+			redisDB = val
+		}
+	}
+
+	rabbitmqURL := os.Getenv("RABBITMQ_URL")
+	if rabbitmqURL == "" {
+		rabbitmqURL = "amqp://guest:guest@localhost:5672/"
+	}
+
 	ActiveConfig = Config{
 		Port:           port,
 		Environment:    environment,
@@ -120,5 +144,9 @@ func InitConfig() {
 		DBUser:         dbUser,
 		DBPassword:     dbPassword,
 		DBName:         dbName,
+		RedisAddr:      redisAddr,
+		RedisPassword:  redisPassword,
+		RedisDB:        redisDB,
+		RabbitMQURL:    rabbitmqURL,
 	}
 }
