@@ -10,6 +10,7 @@ import (
 	"backend/config"
 	"backend/db"
 	"backend/handlers"
+	"backend/internal/repository/redis"
 	"backend/internal/transport/http/routes"
 	"backend/middleware"
 
@@ -58,7 +59,14 @@ func main() {
 		log.Printf("collaboration retention cleanup skipped: %v", err)
 	}
 
-	// 3. Setup router (Gin Engine)
+	// 3. Initialize Redis infrastructure (with graceful degradation fallback)
+	if redisClient, err := redis.NewRedisClient(&config.ActiveConfig); err == nil && redisClient != nil {
+		middleware.GlobalRedisClient = redisClient
+	} else if redisClient != nil {
+		middleware.GlobalRedisClient = redisClient
+	}
+
+	// 4. Setup router (Gin Engine)
 	r := gin.Default()
 
 	// Global Middleware
