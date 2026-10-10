@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
@@ -10,7 +11,11 @@ import (
 	"backend/config"
 	"backend/db"
 	"backend/handlers"
+	"backend/internal/infra/rabbitmq"
+	"backend/internal/infra/rabbitmq/consumer"
+	"backend/internal/infra/rabbitmq/producer"
 	"backend/internal/repository/redis"
+	workitemHandler "backend/internal/transport/http/handler/workitem"
 	"backend/internal/transport/http/routes"
 	"backend/middleware"
 
@@ -66,7 +71,22 @@ func main() {
 		middleware.GlobalRedisClient = redisClient
 	}
 
-	// 4. Setup router (Gin Engine)
+	// 4. Initialize RabbitMQ infrastructure & consumers (with graceful degradation fallback)
+	if rabbitConn, err := rabbitmq.NewRabbitMQConnection(config.ActiveConfig.RabbitMQURL); err == nil && rabbitConn != nil {
+		if ch, err := rabbitConn.Channel(); err == nil && ch != nil {
+			_ = rabbitmq.SetupTopology(ch)
+			pub := producer.NewWorkItemEventPublisher(ch)
+			workitemHandler.SetEventPublisher(pub)
+
+			go func() {
+				_ = consumer.ConsumeSSEBroadcast(context.Background(), ch, func(projectID string, event []byte) {
+					handlers.BroadcastProjectEvent(projectID, event)
+				})
+			}()
+		}
+	}
+
+	// 5. Setup router (Gin Engine)
 	r := gin.Default()
 
 	// Global Middleware
