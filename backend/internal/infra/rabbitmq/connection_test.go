@@ -52,6 +52,9 @@ func TestSetupTopology_Constants(t *testing.T) {
 	if rabbitmq.QueueAuditLogs != "flowak.audit.logs" {
 		t.Errorf("expected QueueAuditLogs to be flowak.audit.logs, got: %s", rabbitmq.QueueAuditLogs)
 	}
+	if rabbitmq.QueueAPIRunnerJobs != "flowak.api_runner.jobs" {
+		t.Errorf("expected QueueAPIRunnerJobs to be flowak.api_runner.jobs, got: %s", rabbitmq.QueueAPIRunnerJobs)
+	}
 }
 
 func TestRabbitMQ_LiveIntegrationIfAvailable(t *testing.T) {

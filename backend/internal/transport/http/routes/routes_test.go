@@ -100,6 +100,7 @@ func TestRegisterAllRoutes(t *testing.T) {
 
 		// AI routes
 		"POST /api/ai/generate-flow",
+		"GET /api/ai/jobs/:id",
 		"POST /api/ai/audit-flow",
 	}
 
