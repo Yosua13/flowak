@@ -3,7 +3,6 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"os"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"backend/db"
 	"backend/middleware"
 	"backend/models"
+	moduleHandler "backend/internal/transport/http/handler/module"
 	"github.com/gin-gonic/gin"
 )
 
@@ -468,120 +468,7 @@ func CreateProjectModuleHandler(c *gin.Context) {
 
 // UpdateModuleHandler handles PUT /api/modules/:id
 func UpdateModuleHandler(c *gin.Context) {
-	userID, err := middleware.GetUserID(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	moduleID := c.Param("id")
-
-	// Authorization
-	var ownerID string
-	var projectID string
-	err = db.DB.QueryRow("SELECT p.owner_id, m.project_id FROM modules m JOIN projects p ON m.project_id = p.id WHERE m.id = $1", moduleID).
-		Scan(&ownerID, &projectID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Module not found"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error checking ownership"})
-		return
-	}
-
-	if !middleware.AuthorizeProject(c, projectID, middleware.CapabilityEditGraph) {
-		return
-	}
-
-	var req models.ModuleRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
-		return
-	}
-	if req.Nodes != nil {
-		nodes, err := prepareSpecificationNodes(req.Nodes)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "error_code": graphInvalidCode})
-			return
-		}
-		req.Nodes = nodes
-	}
-	if req.Edges != nil {
-		edges, err := prepareSpecificationEdges(req.Edges)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "error_code": graphInvalidCode})
-			return
-		}
-		req.Edges = edges
-	}
-
-	tx, err := db.DB.Begin()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
-		return
-	}
-	defer tx.Rollback()
-
-	if req.Name != "" || req.Description != "" {
-		_, err = tx.Exec(`
-			UPDATE modules
-			SET name = CASE WHEN $1 <> '' THEN $1 ELSE name END,
-				description = CASE WHEN $2 <> '' THEN $2 ELSE description END,
-				updated_by = $3,
-				updated_at = CURRENT_TIMESTAMP
-			WHERE id = $4
-		`, strings.TrimSpace(req.Name), strings.TrimSpace(req.Description), userID, moduleID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update module metadata"})
-			return
-		}
-	}
-
-	if req.Nodes != nil || req.Edges != nil || len(req.DeletedNodes) > 0 || len(req.DeletedEdges) > 0 {
-		if err := syncModuleGraph(tx, moduleID, req.Nodes, req.Edges, req.DeletedNodes, req.DeletedEdges); err != nil {
-			var graphErr *graphSyncError
-			if errors.As(err, &graphErr) {
-				status := http.StatusBadRequest
-				if graphErr.Code == graphConflictCode {
-					status = http.StatusConflict
-				}
-				c.JSON(status, gin.H{"error": graphErr.Message, "error_code": graphErr.Code})
-				return
-			}
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-
-		// Rollback-only compatibility write. Normalized workflow tables are authoritative,
-		// and this flag defaults off after two successful shadow reconciliation passes.
-		if graphCompatibilityWriteEnabled() {
-			nodesJSON, _ := json.Marshal(req.Nodes)
-			edgesJSON, _ := json.Marshal(req.Edges)
-			_, err = tx.Exec("UPDATE modules SET nodes = $1, edges = $2, version = version + 1, updated_by = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $4", string(nodesJSON), string(edgesJSON), userID, moduleID)
-		} else {
-			_, err = tx.Exec("UPDATE modules SET version = version + 1, updated_by = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2", userID, moduleID)
-		}
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update module graph metadata"})
-			return
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit module update"})
-		return
-	}
-
-	graph := models.Module{ID: moduleID}
-	if err := hydrateModuleGraph(&graph); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hydrate updated workflow graph"})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true, "message": "Module updated successfully",
-		"nodes": json.RawMessage(graph.Nodes), "edges": json.RawMessage(graph.Edges),
-	})
+	moduleHandler.HandleSyncGraph(c)
 }
 
 // DeleteModuleHandler handles DELETE /api/modules/:id

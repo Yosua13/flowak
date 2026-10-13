@@ -1,117 +1,139 @@
 # Flowak Backend ⚙️
 
-Direktori ini berisi kode backend untuk **Flowak** yang ditulis menggunakan bahasa pemrograman **Go (Golang)** dengan framework **Gin-Gonic** dan database **PostgreSQL**.
+Direktori ini berisi kode backend untuk **Flowak** yang dibangun menggunakan bahasa pemrograman **Go (Golang)** dengan prinsip **Clean Architecture (Hexagonal / Ports & Adapters)** dan aturan ketat **1 File = 1 Fungsi** (*Single-Function per File*).
 
-Backend ini bertanggung jawab untuk mengelola otentikasi pengguna, manajemen proyek dan modul, kolaborasi tim (SaaS tenant & sharing), serta bertindak sebagai gerbang (gateway) proxy ke **Gemini AI API** untuk fitur-fitur pintar berbasis AI.
+Backend bertanggung jawab mengelola otentikasi & sesi pengguna, validasi domain graf proses bisnis, transaksi Kanban dengan *optimistic locking*, *caching* & *distributed locks* via Redis, pengiriman event real-time via SSE, serta pemrosesan *background job* asinkron untuk AI dan API contract runner melalui RabbitMQ.
 
 ---
 
-## 🛠️ Tech Stack & Library Utama
+## 🛠️ Tech Stack & Pustaka Utama
 
-*   **Runtime**: Go v1.21+
-*   **Web Framework**: [Gin-Gonic](https://gin-gonic.com/) (kinerja tinggi, router HTTP cepat, & middleware mudah)
-*   **Database Driver**: `github.com/lib/pq` (klien driver PostgreSQL murni untuk Go)
-*   **Keamanan & Otentikasi**:
-    *   `golang.org/x/crypto/bcrypt` (hashing password pengguna secara aman)
-    *   `github.com/golang-jwt/jwt/v5` (pembuatan dan validasi token JWT)
-*   **Integrasi AI**: HTTP Client native yang memanggil REST API resmi Google Gemini.
+* **Runtime**: Go v1.21+
+* **Web Framework**: [Gin-Gonic](https://gin-gonic.com/) (router HTTP berkecepatan tinggi)
+* **Database Driver**: `github.com/lib/pq` (driver PostgreSQL murni untuk Go)
+* **In-Memory Cache & Lock**: `github.com/redis/go-redis/v9` (klien Redis v9)
+* **Message Broker Client**: `github.com/rabbitmq/amqp091-go` (klien resmi RabbitMQ AMQP 0-9-1)
+* **Keamanan & Kriptografi**:
+  * `golang.org/x/crypto/bcrypt` (hashing password)
+  * `github.com/golang-jwt/jwt/v5` (pembuatan dan verifikasi token JWT)
+* **Mock Testing**: `github.com/DATA-DOG/go-sqlmock`
 
 ---
 
 ## 📂 Struktur Direktori `/backend`
 
+Arsitektur backend dibagi menjadi beberapa lapis modular:
+
 ```text
-├── config/            # Loader file .env dan konfigurasi global runtime
+backend/
+├── cmd/
+│   ├── worker/              # Daemon worker mandiri untuk antrean RabbitMQ (AI & API Runner)
+│   │   └── main.go
+│   └── graph-reconcile/     # CLI tool rekonsiliasi graf alur kerja
+│       └── main.go
+│
+├── config/                  # Pengaturan konfigurasi runtime
 │   └── config.go
-├── db/                # Koneksi database PostgreSQL & script migrasi otomatis
-│   ├── migrations/    # File migrasi skema database (.sql)
-│   └── db.go          # Fungsi ping, inisialisasi, dan eksekutor migrasi
-├── handlers/          # Controller HTTP (API Endpoints handler)
-│   ├── ai.go          # Integrasi prompt Gemini (generate-flow, mock-payload, audit-flow)
-│   ├── auth.go        # Pendaftaran, login pengguna, & enkripsi password
-│   ├── module_graph.go# Operasi CRUD untuk modul graf, node, edge, dan spesifikasi teknis
-│   ├── projects.go    # Manajemen proyek, anggota tim, dan pembagian hak akses
-│   └── users.go       # Data profil pengguna & statistik performa dasbor
-├── middleware/        # Interceptor HTTP Gin
-│   └── auth.go        # Validasi JWT Token & pembatasan akses berbasis peran (role authorization)
-├── models/            # Struktur data (Go structs) penampung request & response payload
-│   └── models.go
-├── main.go            # Entry point aplikasi backend & definisi router
-└── .env               # File konfigurasi lingkungan backend (database & API key)
+│
+├── db/                      # Koneksi database & migrasi SQL otomatis
+│   ├── migrations/          # File migrasi terurut (01..15)
+│   └── db.go
+│
+├── internal/
+│   ├── domain/              # Layer 1: Domain Entities, State Machine, & Repository Interfaces
+│   │   ├── ai/              # Entitas AIJob & status
+│   │   ├── auth/            # Entitas User & validasi otentikasi
+│   │   ├── common/          # Sentinel domain errors terpusat
+│   │   ├── module/          # Graf entitas (Node, Edge), Cycle Detector, & SLA Parser
+│   │   └── workitem/        # Entitas WorkItem & Status State Machine
+│   │
+│   ├── usecase/             # Layer 2: Application Use Cases (Pola 1 File = 1 Fungsi)
+│   │   ├── ai/              # Enqueue flow, Process AI job, Get job status
+│   │   ├── apicontract/     # Enqueue API run & Process API run job
+│   │   ├── auth/            # Register, Login, Logout, Refresh token
+│   │   ├── module/          # Sync graph, Get graph, Publish baseline, Reconcile
+│   │   └── workitem/        # Create, List, Detail, Transition status, Update
+│   │
+│   ├── repository/          # Layer 3: Implementasi Akses Data (PostgreSQL & Redis)
+│   │   ├── postgres/        # Query repositories (ai, auth, module, workitem)
+│   │   └── redis/           # Redis Cache, Redlock Distributed Lock, & Token Blacklist
+│   │
+│   ├── infra/               # Layer 3: External Adapters & Broker
+│   │   └── rabbitmq/        # Koneksi, Topologi Exchange/Queue, Producer, & Consumer
+│   │
+│   └── transport/           # Layer 4: HTTP Delivery (Gin Engine)
+│       └── http/
+│           ├── handler/     # Modular HTTP Handlers (ai, auth, module, workitem)
+│           ├── middleware/  # Auth JWT, CORS, RBAC
+│           ├── response/    # Standardized unified JSON error & success writers
+│           └── routes/      # Registrasi rute modular
+│
+├── handlers/                # Kompatibilitas handler (API runner, tenant helpers)
+├── middleware/              # Middleware otentikasi & tenant authorization
+├── models/                  # Struct model data transport legacy
+├── main.go                  # Entrypoint utama server HTTP API Gin
+└── Dockerfile               # Kontainerisasi server produksi
 ```
 
 ---
 
-## 🔌 API Endpoints Reference
+## ⚡ Panduan Menjalankan Backend
 
-Semua endpoint API dilindungi oleh middleware otentikasi JWT kecuali rute pendaftaran & login publik. Sertakan header `Authorization: Bearer <JWT_TOKEN>` pada setiap request terproteksi.
+### 1. Prasyarat Sistem
+Pastikan perangkat Anda telah terpasang:
+* **Go** versi 1.21 atau lebih baru
+* **PostgreSQL** (Port default `5432`)
+* **Redis** (Port default `6379`)
+* **RabbitMQ** (Port default `5672`, Management UI port `15672`)
 
-### 👤 Otentikasi & Pengguna (Auth & Users)
-*   `POST /api/auth/register` (Publik) - Mendaftarkan pengguna baru dengan peran (`pm`, `uiux`, `frontend`, `backend`).
-*   `POST /api/auth/login` (Publik) - Autentikasi email & password untuk mendapatkan token JWT.
-*   `GET /api/users` - Mengambil daftar seluruh pengguna di organisasi.
-*   `POST /api/users` (Hanya PM) - Membuat akun pengguna baru secara administratif.
-*   `DELETE /api/users/:id` (Hanya PM) - Menghapus akun pengguna.
-*   `GET /api/users/dashboard-stats` - Mengambil statistik pengerjaan tugas & performa SLA untuk dasbor.
-
-### 📁 Manajemen Proyek (Projects)
-*   `GET /api/projects` - Mengambil semua proyek yang dimiliki atau dibagikan dengan pengguna.
-*   `POST /api/projects` - Membuat proyek baru.
-*   `GET /api/projects/:id` - Mengambil detail informasi satu proyek tertentu.
-*   `DELETE /api/projects/:id` - Menghapus proyek beserta modul di dalamnya.
-*   `GET /api/projects/:id/members` - Melihat kolaborator tim pada suatu proyek.
-*   `POST /api/projects/:id/members` - Menambahkan anggota baru ke proyek.
-*   `DELETE /api/projects/:id/members/:userId` - Menghapus anggota tim dari proyek.
-
-### 🌀 Modul & Graf Alur Kerja (Modules & Workflow)
-*   `GET /api/projects/:id/modules` - Mengambil semua modul diagram di bawah satu proyek.
-*   `POST /api/projects/:id/modules` - Membuat modul diagram baru.
-*   `PUT /api/modules/:id` - Memperbarui status diagram (nama, deskripsi, posisi koordinat node graf, & sambungan edges).
-*   `DELETE /api/modules/:id` - Menghapus modul diagram.
-
-### 🔮 Integrasi AI Gemini (AI Proxies)
-*   `POST /api/ai/generate-flow` - Menghasilkan graf node visual berdasarkan deskripsi prompt proses bisnis.
-*   `POST /api/ai/mock-payload` - Menghasilkan mock request/response JSON secara otomatis berdasarkan deskripsi API.
-*   `POST /api/ai/audit-flow` - Menganalisis diagram alur kerja untuk menemukan kelemahan integrasi, bottleneck, atau celah keamanan.
-
----
-
-## ⚡ Perintah Menjalankan Aplikasi
-
-Semua perintah dijalankan di dalam direktori `/backend/`.
-
-1.  **Mengunduh Dependensi Go**:
-    ```bash
-    go mod download
-    ```
-2.  **Menjalankan Server Pengembangan**:
-    ```bash
-    go run main.go
-    ```
-3.  **Menjalankan Unit Test**:
-    ```bash
-    go test ./...
-    ```
-4.  **Kompilasi Aplikasi (Build Binary)**:
-    ```bash
-    go build -o flowak_backend main.go
-    ```
-
----
-
-## ⚙️ Variabel Lingkungan (`.env`)
-
-Konfigurasi backend disimpan dalam file `.env`:
-
-```env
-PORT=3001
-JWT_SECRET=<YOUR_JWT_SECRET>
-GEMINI_API_KEY=<YOUR_GEMINI_API_KEY>
-
-DB_HOST=localhost
-DB_PORT=5432
-DB_USER=<YOUR_DB_USER>
-DB_PASSWORD=<YOUR_DB_PASSWORD>
-DB_NAME=flowak
+*(Tips: Anda dapat menjalankan Redis & RabbitMQ secara cepat menggunakan Docker):*
+```powershell
+docker run -d --name flowak-redis -p 6379:6379 redis:alpine
+docker run -d --name flowak-rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:3-management
 ```
-*Catatan: Backend secara otomatis mendeteksi jika database `flowak` belum ada pada PostgreSQL dan akan mencoba membuat database tersebut secara otomatis saat pertama kali dijalankan.*
+
+---
+
+### 2. Memasang Dependensi Go
+Buka terminal di direktori `/backend`, lalu jalankan:
+```powershell
+go mod download
+```
+
+---
+
+### 3. Menjalankan Server Utama (HTTP API)
+Jalankan server API web Flowak:
+```powershell
+go run main.go
+```
+* Server akan otomatis menguji koneksi ke PostgreSQL, mengeksekusi migrasi tabel terbaru, menghubungkan Redis & RabbitMQ, lalu mulai melayani request pada port default **`3001`** (`http://localhost:3001`).
+
+---
+
+### 4. Menjalankan Background Worker Daemon
+Buka terminal baru di direktori `/backend`, lalu jalankan daemon worker untuk memproses pekerjaan asinkron AI dan API contract runner:
+```powershell
+go run cmd/worker/main.go
+```
+* Worker daemon akan mulai mendengarkan antrean `flowak.ai.jobs` dan `flowak.api_runner.jobs` secara terisolasi dengan dukungan *graceful shutdown* (`Ctrl+C`).
+
+---
+
+### 5. Menjalankan CLI Rekonsiliasi Graf (Opsional)
+Untuk memvalidasi dan mencocokkan konsistensi data graf kanvas terhadap baris tabel ternormalisasi:
+```powershell
+# Rekonsiliasi berdasarkan Project ID
+go run cmd/graph-reconcile/main.go --project-id=<PROJECT_UUID>
+
+# Atau rekonsiliasi berdasarkan Module ID
+go run cmd/graph-reconcile/main.go --module-id=<MODULE_UUID>
+```
+
+---
+
+### 6. Menjalankan Unit & Integration Tests
+Untuk menjalankan seluruh suite pengujian otomatis di seluruh paket backend:
+```powershell
+go test -v -count=1 ./...
+```

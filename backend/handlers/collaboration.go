@@ -52,6 +52,11 @@ func emitProjectEvent(projectID string, event []byte) {
 	}
 }
 
+// BroadcastProjectEvent forwards an event payload to active project SSE subscriber channels.
+func BroadcastProjectEvent(projectID string, event []byte) {
+	emitProjectEvent(projectID, event)
+}
+
 // writeCollaborationEvent writes the audit/outbox payload within the caller's transaction.
 func writeCollaborationEvent(tx *sql.Tx, projectID, moduleID, actorID, name, key string, payload map[string]any) ([]byte, error) {
 	raw := safeEventPayload(payload)

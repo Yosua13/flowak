@@ -12,11 +12,12 @@ import (
 
 	"backend/config"
 	"backend/db"
-	"backend/handlers"
+	domainModule "backend/internal/domain/module"
+	usecaseModule "backend/internal/usecase/module"
 )
 
 type output struct {
-	Reports []handlers.GraphReconciliationReport `json:"reports"`
+	Reports []domainModule.GraphReconciliationReport `json:"reports"`
 }
 
 func main() {
@@ -35,14 +36,14 @@ func main() {
 	defer db.DB.Close()
 
 	ctx := context.Background()
-	var reports []handlers.GraphReconciliationReport
+	var reports []domainModule.GraphReconciliationReport
 	var err error
 	if *moduleID != "" {
-		var report handlers.GraphReconciliationReport
-		report, err = handlers.ReconcileModuleGraph(ctx, *moduleID)
-		reports = []handlers.GraphReconciliationReport{report}
+		var report domainModule.GraphReconciliationReport
+		report, err = usecaseModule.ExecuteReconcileGraph(ctx, db.DB, *moduleID)
+		reports = []domainModule.GraphReconciliationReport{report}
 	} else {
-		reports, err = handlers.ReconcileProjectGraphs(ctx, *projectID)
+		reports, err = usecaseModule.ExecuteReconcileProject(ctx, db.DB, *projectID)
 	}
 	if err != nil {
 		log.Fatalf("graph reconciliation failed: %v", err)

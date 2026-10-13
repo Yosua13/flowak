@@ -302,6 +302,28 @@ func LogoutHandler(c *gin.Context) {
 	if token, err := c.Cookie("flowak_refresh"); err == nil {
 		_, _ = db.DB.Exec(`UPDATE user_sessions SET revoked_at=CURRENT_TIMESTAMP WHERE refresh_token_hash=$1 AND revoked_at IS NULL`, tokenHash(token))
 	}
+	// Blacklist JWT in Redis if Bearer token present
+	authHeader := c.GetHeader("Authorization")
+	if parts := strings.Split(authHeader, " "); len(parts) == 2 && parts[0] == "Bearer" {
+		claims := &middleware.Claims{}
+		token, err := jwt.ParseWithClaims(parts[1], claims, func(t *jwt.Token) (interface{}, error) {
+			return []byte(config.ActiveConfig.JWTSecret), nil
+		})
+		if err == nil && token.Valid && middleware.GlobalRedisClient != nil {
+			tokenID := claims.ID
+			if tokenID == "" {
+				tokenID = claims.SessionID
+			}
+			if tokenID != "" {
+				ttl := 15 * time.Minute
+				if claims.ExpiresAt != nil {
+					ttl = time.Until(claims.ExpiresAt.Time)
+				}
+				key := "blacklist:token:" + tokenID
+				_ = middleware.GlobalRedisClient.Set(c.Request.Context(), key, "revoked", ttl).Err()
+			}
+		}
+	}
 	c.SetCookie("flowak_refresh", "", -1, "/api/auth", "", config.ActiveConfig.Environment == "production", true)
 	c.SetCookie("flowak_sse_access", "", -1, "/api/projects", "", config.ActiveConfig.Environment == "production", true)
 	c.Status(http.StatusNoContent)

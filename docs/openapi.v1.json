@@ -36,7 +36,7 @@
     "/api/projects/{id}/environments": { "get": { "summary": "List project environments" }, "post": { "summary": "Create environment" } },
     "/api/environments/{id}": { "patch": { "summary": "Update environment" }, "delete": { "summary": "Delete environment" } },
     "/api/environments/{id}/variables": { "get": { "summary": "List variable metadata" }, "post": { "summary": "Upsert encrypted variable" } },
-    "/api/environments/{environmentId}/variables/{variableId}": { "delete": { "summary": "Delete environment variable" } },
+    "/api/environments/{id}/variables/{variableId}": { "delete": { "summary": "Delete environment variable" } },
     "/api/nodes/{id}/api-requests": { "get": { "summary": "List API contracts" }, "post": { "summary": "Create API contract" } },
     "/api/api-requests/{id}": { "patch": { "summary": "Update API contract" }, "delete": { "summary": "Delete API contract" } },
     "/api/api-requests/{id}/runs": { "get": { "summary": "List redacted run history" }, "post": { "summary": "Run contract through server-side allowlisted proxy" } },

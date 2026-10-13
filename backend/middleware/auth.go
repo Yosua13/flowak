@@ -1,14 +1,18 @@
 package middleware
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"backend/config"
 	"backend/db"
+	redisSession "backend/internal/repository/redis/session"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 type ContextKey string
@@ -20,6 +24,23 @@ const (
 	ProjectRoleContextKey  ContextKey = "project_role"
 )
 
+// TokenBlacklistChecker defines the interface for checking revoked tokens.
+type TokenBlacklistChecker interface {
+	IsTokenBlacklisted(ctx context.Context, tokenID string) (bool, error)
+}
+
+var (
+	// GlobalRedisClient is an optional global Redis client for blacklist checks.
+	GlobalRedisClient *goredis.Client
+	// GlobalBlacklistChecker is an optional token blacklist checker for middleware.
+	GlobalBlacklistChecker TokenBlacklistChecker
+)
+
+// SetTokenBlacklistChecker configures the token blacklist checker.
+func SetTokenBlacklistChecker(checker TokenBlacklistChecker) {
+	GlobalBlacklistChecker = checker
+}
+
 type Claims struct {
 	UserID         string `json:"user_id"`
 	Email          string `json:"email"`
@@ -29,7 +50,7 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-// AuthMiddleware validates JWT tokens and sets user claims in context
+// AuthMiddleware validates JWT tokens, checks Redis blacklist, and sets user claims in context
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
@@ -65,6 +86,27 @@ func AuthMiddleware() gin.HandlerFunc {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
 			c.Abort()
 			return
+		}
+
+		// Check Redis token blacklist
+		checker := GlobalBlacklistChecker
+		if checker == nil && GlobalRedisClient != nil {
+			checker = redisSession.NewBlacklistTokenRepo(GlobalRedisClient)
+		}
+		if checker != nil {
+			tokenID := claims.ID
+			if tokenID == "" {
+				tokenID = claims.SessionID
+			}
+			if tokenID != "" {
+				ctx, cancel := context.WithTimeout(c.Request.Context(), 500*time.Millisecond)
+				defer cancel()
+				if blacklisted, err := checker.IsTokenBlacklisted(ctx, tokenID); err == nil && blacklisted {
+					c.JSON(http.StatusUnauthorized, gin.H{"error": "Token has been revoked"})
+					c.Abort()
+					return
+				}
+			}
 		}
 
 		c.Set(string(UserContextKey), claims.UserID)

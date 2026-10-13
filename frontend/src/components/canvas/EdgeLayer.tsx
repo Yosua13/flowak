@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { useStore } from '../../store/useStore';
 import { Edge } from '../../domain/types';
 import { Trash2, Edit2, Check, X } from 'lucide-react';
+import { dialog } from '../../services/dialog';
 
 export default function EdgeLayer() {
   const { modules, activeId, deleteEdge, updateEdgeLabel } = useStore();
@@ -217,9 +218,17 @@ export default function EdgeLayer() {
                     </button>
                     <div className="w-px bg-white/5 h-3" />
                     <button
-                      onClick={(e) => {
+                      onClick={async (e) => {
                         e.stopPropagation();
-                        if (window.confirm('Hapus koneksi alur kerja ini?')) {
+                        const confirmed = await dialog.confirm({
+                          title: 'Hapus Koneksi',
+                          message: 'Apakah Anda yakin ingin menghapus koneksi alur kerja ini? Langkah kegiatan tidak akan lagi terhubung secara sekuensial.',
+                          confirmLabel: 'Hapus Koneksi',
+                          cancelLabel: 'Batal',
+                          tone: 'danger',
+                          icon: 'trash',
+                        });
+                        if (confirmed) {
                           deleteEdge(edge.id);
                         }
                       }}

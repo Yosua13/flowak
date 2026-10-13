@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
@@ -157,3 +158,53 @@ func TestAuthorizeProjectDeniesViewerGraphUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+type mockChecker struct {
+	blacklisted map[string]bool
+}
+
+func (m *mockChecker) IsTokenBlacklisted(ctx context.Context, tokenID string) (bool, error) {
+	return m.blacklisted[tokenID], nil
+}
+
+func TestAuthMiddlewareRejectsBlacklistedToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	prevChecker := GlobalBlacklistChecker
+	defer func() { GlobalBlacklistChecker = prevChecker }()
+
+	GlobalBlacklistChecker = &mockChecker{
+		blacklisted: map[string]bool{"revoked_token_id": true},
+	}
+
+	claims := Claims{
+		UserID:         "user_test",
+		OrganizationID: "org_test",
+		SessionID:      "revoked_token_id",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        "revoked_token_id",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Minute)),
+		},
+	}
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(config.ActiveConfig.JWTSecret))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	router := gin.New()
+	router.GET("/test-protected", AuthMiddleware(), func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/test-protected", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for blacklisted token, got: %d", resp.Code)
+	}
+	if !strings.Contains(resp.Body.String(), "Token has been revoked") {
+		t.Fatalf("expected 'Token has been revoked', got: %s", resp.Body.String())
+	}
+}
+
